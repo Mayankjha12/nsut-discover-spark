@@ -4,7 +4,8 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  # Flutter 3.27+ (Color.withValues, TextScaler.clamp are used)
+  sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
   flutter:
