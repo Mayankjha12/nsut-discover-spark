@@ -1,0 +1,187 @@
+{
+  "app_name": "NSUT Hub",
+  "personality": "6 Glass / Luxe DARK fused with 7 Dark-First Utility for data density",
+  "personality_one_liner": "A high-end, cinematic campus utility that tracks attendance and schedules with tactical precision and visually striking glass surfaces.",
+  "color": {
+    "surface": "#0F1115",
+    "onSurface": "#F3F4F6",
+    "surfaceSecondary": "#1A1D24",
+    "onSurfaceSecondary": "#E5E7EB",
+    "surfaceTertiary": "#252932",
+    "onSurfaceTertiary": "#D1D5DB",
+    "surfaceInverse": "#FFFFFF",
+    "onSurfaceInverse": "#0F1115",
+    "brand": "#D32F2F",
+    "brandPrimary": "#E53935",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#B71C1C",
+    "onBrandSecondary": "#F3F4F6",
+    "brandTertiary": "#4A1A1A",
+    "onBrandTertiary": "#FCA5A5",
+    "success": "#166534",
+    "onSuccess": "#DCFCE7",
+    "warning": "#854D0E",
+    "onWarning": "#FEF08A",
+    "error": "#991B1B",
+    "onError": "#FEE2E2",
+    "info": "#1E3A8A",
+    "onInfo": "#DBEAFE",
+    "border": "#2A2D35",
+    "borderStrong": "#3F4451",
+    "divider": "#252932",
+    "muted": "#9CA3AF",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Outfit",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous spacing on dashboard cards to elevate the glassmorphism. Avoid cramped layouts. Padding inside cards is md or lg.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use on the bottom tab bar and sticky headers.",
+      "Apply to the primary Attendance Hero card sitting over the dark architectural background.",
+      "Apply to pinned filters (e.g., semester selection) when content scrolls behind.",
+      "Combine with a translucent tinted base (>=75% surface) underneath to guarantee text readability in dark mode."
+    ],
+    "dont's": [
+      "Do not apply to every list row or dense form inputs.",
+      "Do not rely solely on blur for contrast; always pair with a dark tinted scrim layer.",
+      "Do not use transparent glass over solid colored backgrounds; it only works over imagery or gradients."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Login",
+      "purpose": "IMS authentication with roll number, password, and captcha.",
+      "states": {
+        "loading": "Blurred glass overlay with a sleek, crimson-tinted spinner.",
+        "empty": "N/A",
+        "error": "Bottom sheet or toast showing error with red accent (e.g., Invalid Captcha)."
+      },
+      "layout": "Full-screen dark architectural photo in the background with a vertical gradient scrim (transparent to 80% surfaceInverse). A centered glassmorphic card (surfaceSecondary at 60% opacity with strong blur) contains the form inputs and a solid brandPrimary CTA. The NSUT wordmark or an initial-based logo sits at the top."
+    },
+    {
+      "name": "Home",
+      "purpose": "Dashboard showing high-level attendance and quick actions.",
+      "states": {
+        "loading": "Skeleton loaders mimicking glass cards.",
+        "empty": "N/A",
+        "error": "Glass error card with 'Retry' CTA."
+      },
+      "layout": "Hero section featuring an abstract 3D crimson glass image background. Overlaid is a heavily blurred, large glass card displaying the overall attendance percentage (using a circular progress indicator in brandPrimary). Below the hero, use a 2-column grid or single-column stacked cards (solid surfaceSecondary) for 'Today's Schedule' and a quick action button for 'Vacant Classrooms'."
+    },
+    {
+      "name": "Attendance",
+      "purpose": "Detailed per-subject attendance tracking.",
+      "states": {
+        "loading": "Circular skeleton loaders in a stacked list.",
+        "empty": "Use the 'empty_state' room image with 'No classes scheduled yet'.",
+        "error": "Error card with a prominent retry button."
+      },
+      "layout": "Sticky glass header for filtering (e.g., All, Theory, Practical). A vertical scroll list of surfaceSecondary cards. Each card contains the subject name, current attendance %, and a linear or circular progress bar using the success/warning/error colors based on the threshold."
+    },
+    {
+      "name": "Vacant Classrooms",
+      "purpose": "Live, time-based view of empty classrooms.",
+      "states": {
+        "loading": "Staggered skeleton list.",
+        "empty": "Empty room image with 'All classrooms are currently occupied.'",
+        "error": "Error loading timetable data; retry CTA."
+      },
+      "layout": "Segmented control at the top (glassmorphic) for selecting time slots. Below it, a multi-column grid of pill-shaped or small md-radius cards (surfaceTertiary) listing room numbers. Highlight currently vacant ones with a subtle brandTertiary tint or green success dot."
+    },
+    {
+      "name": "Results",
+      "purpose": "Scraped semester results from resulthubnsut.com.",
+      "states": {
+        "loading": "Skeleton list of semesters.",
+        "empty": "Illustration/empty image indicating no results found.",
+        "error": "Failed to scrape results; retry CTA."
+      },
+      "layout": "Accordion-style or stacked cards (surfaceSecondary) for each semester. Tapping a card expands or opens a bottom sheet with detailed subject-wise grades and GPA."
+    },
+    {
+      "name": "Trending (Coming Soon)",
+      "purpose": "Placeholder for campus news.",
+      "states": {
+        "loading": "N/A",
+        "empty": "Use the abstract crimson shape image with a 'Coming Soon' message.",
+        "error": "N/A"
+      },
+      "layout": "A single full-screen centered empty state layout. Large illustration in the center, display font headline 'Trending Soon', and muted body text."
+    }
+  ],
+  "images": {
+    "login_hero_bg": {
+      "url": "https://images.unsplash.com/photo-1566755828900-5de2b8ac5cbd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbW9kZXJuJTIwdW5pdmVyc2l0eSUyMGJ1aWxkaW5nJTIwYXJjaGl0ZWN0dXJlfGVufDB8fHxibGFja3wxNzkwOTU0ODY2fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1566755828900-5de2b8ac5cbd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbW9kZXJuJTIwdW5pdmVyc2l0eSUyMGJ1aWxkaW5nJTIwYXJjaGl0ZWN0dXJlfGVufDB8fHxibGFja3wxNzkwOTU0ODY2fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Dark modern university building architecture at night."
+    },
+    "home_hero_bg": {
+      "url": "https://images.unsplash.com/photo-1645258163134-1a8e5f1fda55?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxkYXJrJTIwYWJzdHJhY3QlMjAzZCUyMGdsYXNzJTIwc2hhcGV8ZW58MHx8fHJlZHwxNzkwOTU0ODU0fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1645258163134-1a8e5f1fda55?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxkYXJrJTIwYWJzdHJhY3QlMjAzZCUyMGdsYXNzJTIwc2hhcGV8ZW58MHx8fHJlZHwxNzkwOTU0ODU0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract dark 3D glass shape in red/crimson."
+    },
+    "empty_state": {
+      "url": "https://images.unsplash.com/photo-1417816491410-d61e1546e539?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwxfHxlbXB0eSUyMHJvb20lMjBkYXJrJTIwYWVzdGhldGljfGVufDB8fHxibGFja3wxNzkwOTU0ODU0fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1417816491410-d61e1546e539?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwxfHxlbXB0eSUyMHJvb20lMjBkYXJrJTIwYWVzdGhldGljfGVufDB8fHxibGFja3wxNzkwOTU0ODU0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Dark cinematic empty room for vacant classes or empty states."
+    }
+  },
+  "haptics": {
+    "primary_button_press": "impactMedium",
+    "tab_switch": "impactLight",
+    "pull_to_refresh": "impactMedium",
+    "card_expand": "impactLight",
+    "error_toast": "notificationError"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the color palette; do not use any default blue or indigo. The brand accent is deep crimson (#D32F2F).",
+    "Use Outfit for display headings and Geist for body text. Enforce a maximum font weight of 500.",
+    "Implement the gradient scrim pattern (Layer 0: expo-image, Layer 1: linear-gradient fade to dark, Layer 2: content) for the Login background and Home Hero card.",
+    "Use Phosphor icons consistently across all tabs and settings rows. Fill active tab icons, outline inactive ones.",
+    "Apply expo-blur (or expo-glass-effect on iOS) for sticky headers, the bottom tab bar, and the primary dashboard summary card. Ensure a translucent tint base (>= 75% surface) under the blur to maintain readability in dark mode.",
+    "For the IMS login, wrap the form inputs in a glass card sitting over the 'login_hero_bg' photo to create a premium cinematic feel.",
+    "For the 'Vacant Classrooms' screen, utilize segmented controls for time slots and use the 'success' color (#166534) for indicating currently available rooms.",
+    "The 'Trending' tab is a pure empty-state screen utilizing the 'home_hero_bg' abstract crimson shape to showcase a premium 'Coming Soon' message."
+  ]
+}
