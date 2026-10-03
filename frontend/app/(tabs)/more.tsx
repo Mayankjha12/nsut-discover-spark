@@ -1,18 +1,29 @@
 import { useCallback, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import FeatherIcon from "@react-native-vector-icons/feather";
 
+import { Backdrop } from "@/src/components/backdrop";
 import { GlassCard } from "@/src/components/ui";
 import { storage } from "@/src/storage";
 import { colors, radius, spacing } from "@/src/theme";
+
+type IconName = React.ComponentProps<typeof FeatherIcon>["name"];
+
+const QUICK_LINKS: { key: string; title: string; url: string; icon: IconName }[] = [
+  { key: "ims", title: "IMS Portal", url: "https://www.imsnsit.org/imsnsit/", icon: "globe" },
+  { key: "nsut", title: "nsut.ac.in", url: "https://nsut.ac.in/en/home", icon: "home" },
+  { key: "fees", title: "Fee Payment", url: "https://www.onlinesbi.com/sbicollect/icollecthome.htm?corpID=649953", icon: "credit-card" },
+  { key: "library", title: "Library", url: "https://nsut.ac.in/en/library", icon: "book-open" },
+  { key: "maps", title: "Campus Map", url: "https://maps.google.com/?q=Netaji+Subhas+University+of+Technology+Dwarka", icon: "map" },
+];
 
 type Row = {
   key: string;
   title: string;
   sub: string;
-  icon: React.ComponentProps<typeof FeatherIcon>["name"];
+  icon: IconName;
   onPress: () => void;
   danger?: boolean;
 };
@@ -55,14 +66,14 @@ export default function MoreScreen() {
     {
       key: "results",
       title: "My Results",
-      sub: "CGPA & semester SGPAs from ResultHub",
+      sub: "CGPA, SGPA & subject grades",
       icon: "award",
       onPress: () => router.push("/results"),
     },
     {
       key: "news",
       title: "Trending",
-      sub: "Campus news · coming soon",
+      sub: "Live campus notices from nsut.ac.in",
       icon: "trending-up",
       onPress: () => router.push("/news"),
     },
@@ -71,7 +82,7 @@ export default function MoreScreen() {
       title: isGuest ? "Sign in with IMS" : "Resync IMS",
       sub: isGuest ? "Track your attendance" : "Refresh profile & attendance",
       icon: "refresh-cw",
-      onPress: () => (isGuest ? router.push("/login") : router.push({ pathname: "/ims-login", params: { roll: roll ?? "" } })),
+      onPress: () => (isGuest ? router.push("/login") : router.push({ pathname: "/login", params: { resync: "1" } })),
     },
     {
       key: "logout",
@@ -90,6 +101,7 @@ export default function MoreScreen() {
 
   return (
     <View style={styles.root} testID="more-root">
+      <Backdrop intensity="low" />
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
@@ -147,6 +159,23 @@ export default function MoreScreen() {
           ))}
         </View>
 
+        <View style={{ gap: spacing.sm }} testID="more-quick-links">
+          <Text style={styles.sectionTitle}>Campus links</Text>
+          <View style={styles.linkGrid}>
+            {QUICK_LINKS.map((l) => (
+              <Pressable
+                key={l.key}
+                testID={`more-link-${l.key}`}
+                onPress={() => Linking.openURL(l.url)}
+                style={({ pressed }) => [styles.linkTile, pressed && { backgroundColor: colors.surfaceTertiary }]}
+              >
+                <FeatherIcon name={l.icon} size={18} color={colors.brandPrimary} />
+                <Text style={styles.linkTitle}>{l.title}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
         <Text style={styles.footer}>NSUT Hub · Built for NSUT Delhi students</Text>
       </ScrollView>
     </View>
@@ -201,4 +230,20 @@ const styles = StyleSheet.create({
   rowTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "500" },
   rowSub: { color: colors.muted, fontSize: 12 },
   footer: { color: colors.muted, fontSize: 11, textAlign: "center" },
+  sectionTitle: { color: colors.onSurface, fontSize: 16, fontWeight: "600" },
+  linkGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  linkTile: {
+    width: "31%",
+    flexGrow: 1,
+    minHeight: 76,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: spacing.sm,
+  },
+  linkTitle: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "500", textAlign: "center" },
 });

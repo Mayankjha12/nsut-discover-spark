@@ -12,6 +12,8 @@ from datetime import datetime, timezone, time as dtime
 from zoneinfo import ZoneInfo
 import re
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from bs4 import BeautifulSoup
 
 ROOT_DIR = Path(__file__).parent
@@ -197,32 +199,121 @@ async def vacant_rooms(slot: Optional[int] = None):
     }
 
 
-# ---- Results Hub scraping ----
+# ---- Results (ResultHub NSUT JSON API, cached in Mongo) ----
+RESULTHUB_API = "https://api.resulthubnsut.com/api/nsut/students/{roll}"
+RESULTS_TTL_SEC = 6 * 3600
+UA = {"User-Agent": "Mozilla/5.0 (NSUT Hub)"}
+
+
+def _shape_results(roll: str, d: Dict[str, Any]) -> Dict[str, Any]:
+    sems = []
+    for s in d.get("semesters") or []:
+        sems.append({
+            "semester": str(s.get("semester", "")),
+            "sgpa": s.get("sgpa"),
+            "credits_registered": str(s.get("credits_registered", "")),
+            "credits_secured": str(s.get("credits_secured", "")),
+            "subjects": [
+                {"subject_code": x.get("subject_code"), "grade": x.get("grade"), "credits": x.get("marks")}
+                for x in (s.get("subjects") or [])
+            ],
+        })
+    return {
+        "ok": True,
+        "roll_number": roll,
+        "url": f"https://www.resulthubnsut.com/student/{roll}",
+        "name": d.get("name"),
+        "branch_code": d.get("branch_code"),
+        "year_of_study": d.get("year_of_study"),
+        "cgpa": d.get("cgpa"),
+        "rank": d.get("rank"),
+        "branch_rank": d.get("branch_rank"),
+        "percentile": d.get("percentile"),
+        "credits_completed": d.get("credits_completed"),
+        "semester_sgpas": [s["sgpa"] for s in sems if s.get("sgpa") is not None],
+        "semesters": sems,
+        "grade_distribution": (d.get("stats") or {}).get("grade_distribution") or {},
+        "total_subjects": (d.get("stats") or {}).get("total_subjects"),
+    }
+
+
 @api_router.get("/results/{roll_number}")
 async def results(roll_number: str):
-    """Attempts to scrape resulthubnsut.com for a given roll number."""
+    roll = roll_number.strip().upper()
+    now = datetime.now(timezone.utc)
+    cached = await db.results_cache.find_one({"roll_number": roll}, {"_id": 0})
+    if cached:
+        age = (now - cached["fetched_at"].replace(tzinfo=timezone.utc)).total_seconds()
+        if age < RESULTS_TTL_SEC:
+            return {**cached["data"], "cached": True, "fetched_at": cached["fetched_at"].isoformat()}
     try:
-        url = f"https://www.resulthubnsut.com/student/{roll_number}"
-        r = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code != 200:
-            return {"ok": False, "status": r.status_code, "url": url}
-        soup = BeautifulSoup(r.text, "html.parser")
-        # Try to pull semester / SGPA numbers; actual structure may change.
-        text = soup.get_text(" ", strip=True)
-        sgpa_matches = re.findall(r"SGPA[:\s]*([0-9]+\.[0-9]+)", text, re.I)
-        cgpa_match = re.search(r"CGPA[:\s]*([0-9]+\.[0-9]+)", text, re.I)
-        name_match = re.search(r"Name[:\s]*([A-Z][A-Z\s]+)", text)
-        return {
-            "ok": True,
-            "roll_number": roll_number,
-            "url": url,
-            "name": name_match.group(1).strip() if name_match else None,
-            "cgpa": float(cgpa_match.group(1)) if cgpa_match else None,
-            "semester_sgpas": [float(x) for x in sgpa_matches],
-            "raw_preview": text[:400],
-        }
+        r = requests.get(RESULTHUB_API.format(roll=roll), timeout=12, headers=UA)
+        body = r.json() if r.content else {}
+        if r.status_code == 404 or (isinstance(body, dict) and body.get("success") is False):
+            if cached:
+                return {**cached["data"], "cached": True, "stale": True, "fetched_at": cached["fetched_at"].isoformat()}
+            return {"ok": False, "error": body.get("message") or "Roll number not found on ResultHub",
+                    "url": f"https://www.resulthubnsut.com/student/{roll}"}
+        r.raise_for_status()
+        data = _shape_results(roll, body.get("data") or {})
+        await db.results_cache.update_one(
+            {"roll_number": roll}, {"$set": {"roll_number": roll, "data": data, "fetched_at": now}}, upsert=True
+        )
+        return {**data, "cached": False, "fetched_at": now.isoformat()}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        logger.exception("results fetch failed")
+        if cached:
+            return {**cached["data"], "cached": True, "stale": True, "fetched_at": cached["fetched_at"].isoformat()}
+        return {"ok": False, "error": str(e), "url": f"https://www.resulthubnsut.com/student/{roll}"}
+
+
+# ---- Campus notices (nsut.ac.in, cached 1h) ----
+NOTICES_URL = "https://nsut.ac.in/en/home"
+NOTICES_TTL_SEC = 3600
+
+
+def _scrape_notices() -> List[Dict[str, Any]]:
+    r = requests.get(NOTICES_URL, timeout=15, headers=UA, verify=False)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    items: List[Dict[str, Any]] = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        title = a.get_text(" ", strip=True)
+        href = a["href"].strip()
+        if len(title) < 12 or href in ("#", "") or title in seen:
+            continue
+        in_marquee = a.find_parent("marquee") is not None
+        if not in_marquee:
+            continue
+        if href.startswith("/"):
+            href = "https://nsut.ac.in" + href
+        parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
+        is_new = parent_text.endswith("New") or " New" in parent_text[len(title):]
+        seen.add(title)
+        items.append({"title": title, "url": href, "is_new": bool(is_new), "source": "nsut.ac.in"})
+    return items
+
+
+@api_router.get("/notices")
+async def notices():
+    now = datetime.now(timezone.utc)
+    cached = await db.notices_cache.find_one({"key": "nsut"}, {"_id": 0})
+    if cached:
+        age = (now - cached["fetched_at"].replace(tzinfo=timezone.utc)).total_seconds()
+        if age < NOTICES_TTL_SEC:
+            return {"ok": True, "items": cached["items"], "cached": True, "fetched_at": cached["fetched_at"].isoformat()}
+    try:
+        items = _scrape_notices()
+        await db.notices_cache.update_one(
+            {"key": "nsut"}, {"$set": {"key": "nsut", "items": items, "fetched_at": now}}, upsert=True
+        )
+        return {"ok": True, "items": items, "cached": False, "fetched_at": now.isoformat()}
+    except Exception as e:
+        logger.exception("notices fetch failed")
+        if cached:
+            return {"ok": True, "items": cached["items"], "cached": True, "stale": True}
+        return {"ok": False, "items": [], "error": str(e)}
 
 
 # ---- News placeholder ----

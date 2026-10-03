@@ -49,6 +49,20 @@ export function attendanceColor(p: number | null | undefined) {
   return colors.error;
 }
 
+/** Bunk math against the 75% threshold. */
+export function bunkInfo(present: number | null | undefined, total: number | null | undefined, threshold = 0.75) {
+  if (present == null || total == null || total <= 0) return null;
+  const pct = present / total;
+  if (pct >= threshold) {
+    // how many future classes can be missed while staying >= threshold
+    const canSkip = Math.floor(present / threshold - total);
+    return { safe: true as const, count: Math.max(0, canSkip) };
+  }
+  // consecutive classes that must be attended to reach threshold
+  const need = Math.ceil((threshold * total - present) / (1 - threshold));
+  return { safe: false as const, count: Math.max(1, need) };
+}
+
 const styles = StyleSheet.create({
   value: { color: colors.onSurface, fontWeight: "600", letterSpacing: -1 },
   label: { color: colors.muted, fontSize: 11, marginTop: 2, textTransform: "uppercase", letterSpacing: 1 },

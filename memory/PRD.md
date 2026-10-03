@@ -26,6 +26,15 @@ All-in-one campus utility app for NSUT Delhi students: IMS attendance tracking, 
 - `app/news.tsx` — Coming Soon hero
 - `src/components/progress-ring.tsx` — SVG ring + `attendanceColor()`
 
+## Session 2 additions (done)
+- Unified login: roll/pw inputs + IMS WebView (captcha) on ONE screen; auto-detects login, runs `FULL_SYNC_JS` (fetch-based: My Activities → courses → attendance form POST → table) → saves profile + attendance → auto-opens dashboard. `ims-login.tsx` deleted; resync = `/login?resync=1`.
+- Bunk calculator per subject + overall (`bunkInfo` in progress-ring.tsx) using present/total from IMS.
+- Results: backend now uses ResultHub JSON API (api.resulthubnsut.com) cached in Mongo `results_cache` (6h) + device cache; full detail (rank, percentile, credits, SGPA trend, grade distribution, per-semester subjects). Source name hidden from UI (user request: confidential).
+- Trending = live notices scraped from nsut.ac.in home marquee (`/api/notices`, Mongo cache 1h); Drive links open as direct PDF preview.
+- Backdrop component (SVG radial crimson glow) replaces Unsplash hero images. Campus quick links on More.
+- NOT done: real IMS room timetable (needs on-device IMS session; vacant rooms still deterministic placeholder).
+- IMS FULL_SYNC_JS untested on real device — user to verify on phone (APK).
+
 ## Backlog / ideas
 - Real IMS attendance validation on a device (needs user's IMS creds; Expo Go)
 - Trending news real feed

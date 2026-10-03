@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import FeatherIcon from "@react-native-vector-icons/feather";
 
 import { api } from "@/src/api";
+import { Backdrop } from "@/src/components/backdrop";
 import { colors, radius, spacing } from "@/src/theme";
 
 const EMPTY_IMG =
@@ -41,6 +42,7 @@ export default function RoomsScreen() {
 
   return (
     <View style={styles.root} testID="rooms-root">
+      <Backdrop intensity="low" />
       <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
@@ -146,7 +148,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingBottom: spacing.md,
     gap: spacing.md,
-    backgroundColor: colors.surface,
+    backgroundColor: 'transparent',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },

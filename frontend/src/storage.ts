@@ -7,6 +7,7 @@ const KEY_PASSWORD = "nsut_hub_pw";
 const KEY_PROFILE = "nsut_hub_profile";
 const KEY_ATTENDANCE = "nsut_hub_attendance";
 const KEY_SESSION_COOKIE = "nsut_hub_session_cookie";
+const KEY_RESULTS = "nsut_hub_results";
 
 type Store = {
   getItemAsync: (k: string) => Promise<string | null>;
@@ -64,5 +65,12 @@ export const storage = {
   },
   async setAttendance(a: any) {
     await store.setItemAsync(KEY_ATTENDANCE, JSON.stringify(a));
+  },
+  async getResults(roll: string): Promise<any | null> {
+    const s = await store.getItemAsync(`${KEY_RESULTS}_${roll}`);
+    return s ? JSON.parse(s) : null;
+  },
+  async setResults(roll: string, r: any) {
+    await store.setItemAsync(`${KEY_RESULTS}_${roll}`, JSON.stringify(r));
   },
 };

@@ -29,7 +29,20 @@ export const api = {
     j("/attendance", { method: "POST", body: JSON.stringify(p) }),
   getAttendance: (roll: string) => j(`/attendance/${roll}`),
   results: (roll: string) => j<ResultsResponse>(`/results/${roll}`),
+  notices: () => j<NoticesResponse>("/notices"),
   news: () => j("/news"),
+};
+
+export type NoticeItem = { title: string; url: string; is_new: boolean; source: string };
+export type NoticesResponse = { ok: boolean; items: NoticeItem[]; cached?: boolean; stale?: boolean; error?: string };
+
+export type ResultSubject = { subject_code: string; grade: string; credits: number | null };
+export type ResultSemester = {
+  semester: string;
+  sgpa: number | null;
+  credits_registered: string;
+  credits_secured: string;
+  subjects: ResultSubject[];
 };
 
 export type VacantRoomsResponse = {
@@ -54,8 +67,19 @@ export type ResultsResponse = {
   roll_number?: string;
   url?: string;
   name?: string | null;
+  branch_code?: string | null;
+  year_of_study?: string | null;
   cgpa?: number | null;
+  rank?: number | null;
+  branch_rank?: number | null;
+  percentile?: number | null;
+  credits_completed?: number | null;
   semester_sgpas?: number[];
-  raw_preview?: string;
+  semesters?: ResultSemester[];
+  grade_distribution?: Record<string, number>;
+  total_subjects?: number | null;
+  cached?: boolean;
+  stale?: boolean;
+  fetched_at?: string;
   error?: string;
 };

@@ -1,20 +1,17 @@
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import FeatherIcon from "@react-native-vector-icons/feather";
 
 import { api } from "@/src/api";
+import { Backdrop } from "@/src/components/backdrop";
 import { GlassCard } from "@/src/components/ui";
-import { ProgressRing, attendanceColor } from "@/src/components/progress-ring";
+import { ProgressRing, attendanceColor, bunkInfo } from "@/src/components/progress-ring";
 import { storage } from "@/src/storage";
 import { colors, radius, spacing } from "@/src/theme";
-
-const HERO_BG =
-  "https://images.unsplash.com/photo-1645258163134-1a8e5f1fda55?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxkYXJrJTIwYWJzdHJhY3QlMjAzZCUyMGdsYXNzJTIwc2hhcGV8ZW58MHx8fHJlZHwxNzkwOTU0ODU0fDA&ixlib=rb-4.1.0&q=85";
+import { directUrl } from "@/src/utils/links";
 
 type Action = {
   key: string;
@@ -29,7 +26,7 @@ const ACTIONS: Action[] = [
   { key: "rooms", title: "Vacant Rooms", sub: "Free right now", icon: "map-pin", route: "/(tabs)/rooms", accent: true },
   { key: "attendance", title: "Attendance", sub: "Subject-wise", icon: "activity", route: "/(tabs)/attendance" },
   { key: "results", title: "My Results", sub: "CGPA & SGPA", icon: "award", route: "/results" },
-  { key: "news", title: "Trending", sub: "Coming soon", icon: "trending-up", route: "/news" },
+  { key: "news", title: "Trending", sub: "Campus notices", icon: "trending-up", route: "/news" },
 ];
 
 function greeting() {
@@ -67,12 +64,15 @@ export default function HomeScreen() {
   );
 
   const rooms = useQuery({ queryKey: ["vacant-rooms"], queryFn: () => api.vacantRooms() });
+  const notices = useQuery({ queryKey: ["notices"], queryFn: () => api.notices(), staleTime: 5 * 60_000 });
   const currentSlot = rooms.data?.slots.find((s) => s.is_current) ?? null;
   const freeNow = currentSlot?.vacant_count ?? rooms.data?.slots[0]?.vacant_count ?? null;
 
   const pct: number | null = attendance?.overall_percent ?? null;
+  const bunk = bunkInfo(attendance?.total_present, attendance?.total_classes);
   const isGuest = !roll || roll === "guest";
   const firstName = profile?.name ? String(profile.name).split(" ")[0] : isGuest ? "Explorer" : roll;
+  const topNotices = (notices.data?.items ?? []).slice(0, 3);
 
   return (
     <View style={styles.root} testID="home-root">
@@ -81,12 +81,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Image source={{ uri: HERO_BG }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
-          <LinearGradient
-            colors={["rgba(15,17,21,0.15)", "rgba(15,17,21,0.75)", colors.surface]}
-            locations={[0, 0.6, 1]}
-            style={StyleSheet.absoluteFill}
-          />
+          <Backdrop intensity="high" />
           <View style={[styles.heroContent, { paddingTop: insets.top + spacing.lg }]}>
             <View style={styles.heroHeader}>
               <View style={{ flex: 1 }}>
@@ -119,22 +114,22 @@ export default function HomeScreen() {
                         {pct >= 75 ? "You're safe" : pct >= 65 ? "Borderline" : "Danger zone"}
                       </Text>
                       <Text style={styles.attSub}>
-                        {attendance?.subjects?.length ?? 0} subjects tracked · tap for details
+                        {bunk
+                          ? bunk.safe
+                            ? `Skip up to ${bunk.count} more ${bunk.count === 1 ? "class" : "classes"} safely`
+                            : `Attend next ${bunk.count} ${bunk.count === 1 ? "class" : "classes"} to recover`
+                          : `${attendance?.subjects?.length ?? 0} subjects tracked · tap for details`}
                       </Text>
                     </>
                   ) : (
                     <>
                       <Text style={styles.attTitle}>Not synced yet</Text>
                       <Text style={styles.attSub}>
-                        {isGuest ? "Sign in with IMS to track attendance." : "Open IMS to sync your attendance."}
+                        {isGuest ? "Sign in with IMS to track attendance." : "Log in to IMS once to sync attendance."}
                       </Text>
                       <Pressable
                         testID="home-sync-button"
-                        onPress={() =>
-                          isGuest
-                            ? router.push("/login")
-                            : router.push({ pathname: "/ims-login", params: { roll: roll ?? "" } })
-                        }
+                        onPress={() => (isGuest ? router.push("/login") : router.push({ pathname: "/login", params: { resync: "1" } }))}
                         style={styles.syncBtn}
                       >
                         <FeatherIcon name="refresh-cw" size={13} color={colors.onBrandPrimary} />
@@ -195,6 +190,31 @@ export default function HomeScreen() {
               </Pressable>
             ))}
           </View>
+
+          {topNotices.length ? (
+            <View style={{ gap: spacing.sm }} testID="home-notices">
+              <View style={styles.rowBetween}>
+                <Text style={styles.sectionTitle}>Campus notices</Text>
+                <Pressable testID="home-notices-all" onPress={() => router.push("/news")} hitSlop={8}>
+                  <Text style={styles.link}>See all</Text>
+                </Pressable>
+              </View>
+              {topNotices.map((n, i) => (
+                <Pressable
+                  key={`${i}-${n.url}`}
+                  testID={`home-notice-${i}`}
+                  onPress={() => Linking.openURL(directUrl(n.url))}
+                  style={({ pressed }) => [styles.noticeRow, pressed && { backgroundColor: colors.surfaceTertiary }]}
+                >
+                  <View style={[styles.noticeDot, !n.is_new && { backgroundColor: colors.muted }]} />
+                  <Text style={styles.noticeText} numberOfLines={2}>
+                    {n.title}
+                  </Text>
+                  <FeatherIcon name="arrow-up-right" size={14} color={colors.muted} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </View>
@@ -203,7 +223,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
-  hero: { minHeight: 380, overflow: "hidden" },
+  hero: { overflow: "hidden", paddingBottom: spacing.sm },
   heroContent: { paddingHorizontal: spacing.xl, gap: spacing.xl, paddingBottom: spacing.lg },
   heroHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   greet: { color: colors.onSurfaceTertiary, fontSize: 14 },
@@ -249,6 +269,22 @@ const styles = StyleSheet.create({
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success },
   liveText: { color: colors.onSurfaceSecondary, fontSize: 13, flex: 1 },
   sectionTitle: { color: colors.onSurface, fontSize: 18, fontWeight: "600" },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  link: { color: colors.brandPrimary, fontSize: 13, fontWeight: "500" },
+  noticeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  noticeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.brandPrimary },
+  noticeText: { color: colors.onSurfaceSecondary, fontSize: 13, flex: 1, lineHeight: 18 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   tile: {
     width: "48%",

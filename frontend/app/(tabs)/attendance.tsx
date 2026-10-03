@@ -5,8 +5,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import FeatherIcon from "@react-native-vector-icons/feather";
 
 import { GlassCard, Pill } from "@/src/components/ui";
-import { attendanceColor } from "@/src/components/progress-ring";
+import { attendanceColor, bunkInfo } from "@/src/components/progress-ring";
 import { storage } from "@/src/storage";
+import { Backdrop } from "@/src/components/backdrop";
 import { colors, radius, spacing } from "@/src/theme";
 
 type Filter = "all" | "theory" | "practical";
@@ -16,7 +17,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "practical", label: "Practical" },
 ];
 
-type Subject = { name: string; code?: string; percent: number; cells?: string[] };
+type Subject = { name: string; code?: string; percent: number; present?: number | null; total?: number | null; credits?: string | null };
 
 function isPractical(s: Subject) {
   const t = `${s.name} ${s.code ?? ""}`.toLowerCase();
@@ -54,19 +55,23 @@ export default function AttendanceScreen() {
 
   function goSync() {
     if (isGuest) router.push("/login");
-    else router.push({ pathname: "/ims-login", params: { roll: roll ?? "" } });
+    else router.push({ pathname: "/login", params: { resync: "1" } });
   }
 
   const overall: number | null = data?.overall_percent ?? null;
+  const overallBunk = bunkInfo(data?.total_present, data?.total_classes);
 
   return (
     <View style={styles.root} testID="attendance-root">
+      <Backdrop intensity="low" />
       <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Attendance</Text>
             <Text style={styles.sub}>
-              {overall != null ? `Overall ${Math.round(overall)}% · ${data?.subjects?.length ?? 0} subjects` : "Synced from IMS NSUT"}
+              {overall != null
+                ? `Overall ${Math.round(overall)}%${data?.total_classes ? ` · ${data.total_present}/${data.total_classes} classes` : ""}`
+                : "Synced from IMS NSUT"}
             </Text>
           </View>
           <Pressable testID="attendance-sync-button" onPress={goSync} style={styles.iconBtn}>
@@ -96,6 +101,23 @@ export default function AttendanceScreen() {
         keyExtractor={(s, i) => `${s.code ?? s.name}-${i}`}
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
         refreshControl={<RefreshControl refreshing={false} onRefresh={goSync} tintColor={colors.brandPrimary} />}
+        ListHeaderComponent={
+          overallBunk ? (
+            <View style={[styles.summary, { borderColor: overallBunk.safe ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)" }]} testID="attendance-bunk-summary">
+              <FeatherIcon name={overallBunk.safe ? "coffee" : "alert-triangle"} size={18} color={overallBunk.safe ? colors.success : colors.error} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.summaryTitle}>
+                  {overallBunk.safe
+                    ? `You can skip ${overallBunk.count} more ${overallBunk.count === 1 ? "class" : "classes"}`
+                    : `Attend the next ${overallBunk.count} ${overallBunk.count === 1 ? "class" : "classes"}`}
+                </Text>
+                <Text style={styles.summarySub}>
+                  {overallBunk.safe ? "and still stay at or above 75% overall." : "in a row to climb back to 75% overall."}
+                </Text>
+              </View>
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           loaded ? (
             <GlassCard style={styles.emptyCard}>
@@ -124,6 +146,7 @@ export default function AttendanceScreen() {
         }
         renderItem={({ item, index }) => {
           const c = attendanceColor(item.percent);
+          const b = bunkInfo(item.present, item.total);
           return (
             <View style={styles.card} testID={`attendance-subject-${index}`}>
               <View style={styles.cardTop}>
@@ -131,20 +154,40 @@ export default function AttendanceScreen() {
                   <Text style={styles.subjName} numberOfLines={2}>
                     {item.name}
                   </Text>
-                  {item.code ? <Text style={styles.subjCode}>{item.code}</Text> : null}
+                  {item.code && item.code !== item.name ? <Text style={styles.subjCode}>{item.code}</Text> : null}
                 </View>
-                <Text style={[styles.pct, { color: c }]}>{Math.round(item.percent)}%</Text>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={[styles.pct, { color: c }]}>{Math.round(item.percent)}%</Text>
+                  {item.present != null && item.total != null ? (
+                    <Text style={styles.count}>
+                      {item.present}/{item.total}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
               <View style={styles.bar}>
                 <View style={[styles.barFill, { width: `${Math.max(0, Math.min(100, item.percent))}%`, backgroundColor: c }]} />
+                <View style={styles.threshold} />
               </View>
-              <Text style={styles.hint}>
-                {item.percent >= 75
-                  ? "Safe — above 75% threshold"
-                  : item.percent >= 65
-                    ? "Borderline — attend next classes"
-                    : "Below threshold — attend all classes"}
-              </Text>
+              {b ? (
+                <View style={styles.bunkRow}>
+                  <View style={[styles.bunkPill, { backgroundColor: b.safe ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)" }]}>
+                    <FeatherIcon name={b.safe ? "coffee" : "zap"} size={12} color={b.safe ? colors.success : colors.error} />
+                    <Text style={[styles.bunkText, { color: b.safe ? colors.success : colors.error }]}>
+                      {b.safe ? `Can skip ${b.count}` : `Attend next ${b.count}`}
+                    </Text>
+                  </View>
+                  <Text style={styles.hint}>{b.safe ? "and stay ≥ 75%" : "to reach 75%"}</Text>
+                </View>
+              ) : (
+                <Text style={styles.hint}>
+                  {item.percent >= 75
+                    ? "Safe — above 75% threshold"
+                    : item.percent >= 65
+                      ? "Borderline — attend next classes"
+                      : "Below threshold — attend all classes"}
+                </Text>
+              )}
             </View>
           );
         }}
@@ -159,7 +202,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingBottom: spacing.md,
     gap: spacing.md,
-    backgroundColor: colors.surface,
+    backgroundColor: 'transparent',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -191,8 +234,24 @@ const styles = StyleSheet.create({
   subjName: { color: colors.onSurface, fontSize: 15, fontWeight: "600", lineHeight: 20 },
   subjCode: { color: colors.muted, fontSize: 12, letterSpacing: 0.5 },
   pct: { fontSize: 22, fontWeight: "600", letterSpacing: -0.5 },
+  count: { color: colors.muted, fontSize: 11 },
   bar: { height: 8, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: radius.pill },
+  threshold: { position: "absolute", left: "75%", top: 0, bottom: 0, width: 2, backgroundColor: colors.onSurface, opacity: 0.5 },
+  bunkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  bunkPill: { flexDirection: "row", alignItems: "center", gap: 6, height: 26, paddingHorizontal: 10, borderRadius: radius.pill },
+  bunkText: { fontSize: 12, fontWeight: "600" },
+  summary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  summaryTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "600" },
+  summarySub: { color: colors.muted, fontSize: 12, marginTop: 2 },
   hint: { color: colors.muted, fontSize: 12 },
   emptyCard: { marginTop: spacing.xl },
   emptyInner: { padding: spacing.xl, alignItems: "center", gap: spacing.md },
