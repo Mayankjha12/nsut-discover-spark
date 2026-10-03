@@ -56,7 +56,7 @@ export default function LoginScreen() {
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [ready, setReady] = useState(false);
-  const [status, setStatus] = useState("Enter roll & password — captcha below.");
+  const [status, setStatus] = useState("Sign in with your IMS account");
   const [phase, setPhase] = useState<Phase>("idle");
   const [syncMsg, setSyncMsg] = useState("");
   const [syncErr, setSyncErr] = useState("");
@@ -150,7 +150,7 @@ export default function LoginScreen() {
     <View style={styles.root} testID="login-root">
       <Backdrop intensity={isWeb ? "high" : "low"} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <View style={[styles.top, { paddingTop: insets.top + spacing.md }]}>
+        <View style={[styles.top, { paddingTop: insets.top + (isWeb ? 140 : spacing.xl) }]}>
           <View style={styles.brandRow}>
             <View style={styles.logoBadge}>
               <Text style={styles.logoBadgeText}>N</Text>
@@ -165,18 +165,7 @@ export default function LoginScreen() {
               <Pressable testID="login-back" onPress={() => router.back()} style={styles.iconBtn}>
                 <FeatherIcon name="x" size={18} color={colors.onSurface} />
               </Pressable>
-            ) : (
-              <Pressable
-                testID="skip-button"
-                onPress={async () => {
-                  await storage.setRollAndPassword("guest", "guest");
-                  router.replace("/(tabs)");
-                }}
-                style={styles.skipBtn}
-              >
-                <Text style={styles.skipText}>Skip</Text>
-              </Pressable>
-            )}
+            ) : null}
           </View>
 
           <GlassCard>
@@ -215,27 +204,17 @@ export default function LoginScreen() {
 
         {isWeb ? (
           <View style={styles.webFallback}>
-            <GlassCard>
-              <View style={styles.webInner}>
-                <View style={styles.webIcon}>
-                  <FeatherIcon name="smartphone" size={26} color={colors.brandPrimary} />
-                </View>
-                <Text style={styles.webTitle}>IMS login works on your phone</Text>
-                <Text style={styles.webSub}>
-                  Open NSUT Hub on your phone to sign in with IMS (captcha loads right here). Or explore as a guest.
-                </Text>
-                <Pressable
-                  testID="web-continue-demo"
-                  onPress={async () => {
-                    await storage.setRollAndPassword(roll.trim() || "guest", pw || "guest");
-                    router.replace("/(tabs)");
-                  }}
-                  style={styles.cta}
-                >
-                  <Text style={styles.ctaText}>{roll.trim() ? "Continue with this roll" : "Explore as guest"}</Text>
-                </Pressable>
-              </View>
-            </GlassCard>
+            <Pressable
+              testID="web-continue"
+              disabled={!roll.trim() || !pw}
+              onPress={async () => {
+                await storage.setRollAndPassword(roll.trim(), pw);
+                router.replace("/(tabs)");
+              }}
+              style={[styles.cta, (!roll.trim() || !pw) && { opacity: 0.5 }]}
+            >
+              <Text style={styles.ctaText}>Continue</Text>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.webviewWrap}>
@@ -308,8 +287,8 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
-  top: { paddingHorizontal: spacing.lg, gap: spacing.md, paddingBottom: spacing.md },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  top: { paddingHorizontal: spacing.lg, gap: spacing.xl, paddingBottom: spacing.md },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.lg, marginBottom: spacing.sm },
   logoBadge: {
     width: 40,
     height: 40,
@@ -375,18 +354,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingText: { color: colors.muted },
-  webFallback: { flex: 1, paddingHorizontal: spacing.lg, justifyContent: "center" },
-  webInner: { padding: spacing.xl, alignItems: "center", gap: spacing.md },
-  webIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: colors.brandTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  webTitle: { color: colors.onSurface, fontSize: 18, fontWeight: "600", textAlign: "center" },
-  webSub: { color: colors.muted, textAlign: "center", lineHeight: 20, fontSize: 13 },
+  webFallback: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   cta: {
     marginTop: spacing.sm,
     height: 50,
