@@ -170,6 +170,40 @@ async def get_attendance(roll_number: str):
 
 
 # ---- Vacant rooms ----
+DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _hour_of(label: str) -> Optional[int]:
+    m = re.search(r"(\d{1,2})", label or "")
+    if not m:
+        return None
+    h = int(m.group(1))
+    # IMS labels like "2-3" mean 14:00-15:00
+    if h < 8:
+        h += 12
+    return h
+
+
+class RoomTimetablePayload(BaseModel):
+    roll_number: Optional[str] = None
+    rooms: Dict[str, Dict[str, List[str]]]  # room -> day(Mon..) -> free time labels
+
+
+@api_router.post("/room-timetable")
+async def save_room_timetable(payload: RoomTimetablePayload):
+    """Real IMS room timetables scraped on-device; merged into the shared pool."""
+    if not payload.rooms:
+        raise HTTPException(status_code=400, detail="rooms required")
+    existing = await db.room_timetable.find_one({"key": "ims"}, {"_id": 0}) or {"rooms": {}}
+    merged = {**existing.get("rooms", {}), **payload.rooms}
+    await db.room_timetable.update_one(
+        {"key": "ims"},
+        {"$set": {"key": "ims", "rooms": merged, "updated_at": datetime.now(timezone.utc), "by": payload.roll_number}},
+        upsert=True,
+    )
+    return {"ok": True, "rooms": len(merged)}
+
+
 @api_router.get("/vacant-rooms")
 async def vacant_rooms(slot: Optional[int] = None):
     # NSUT IST is UTC+5:30
@@ -177,24 +211,42 @@ async def vacant_rooms(slot: Optional[int] = None):
     weekday = ist_now.weekday()
     cur_slot = current_slot_index(ist_now)
     chosen = slot if slot is not None else cur_slot
+    real = await db.room_timetable.find_one({"key": "ims"}, {"_id": 0})
+    real_rooms: Dict[str, Dict[str, List[str]]] = (real or {}).get("rooms") or {}
+    day = DAY_NAMES[weekday]
     out_slots = []
     for i, (s, e) in enumerate(TIME_SLOTS):
-        rooms = [r for r in NSUT_ROOMS if is_room_vacant(r, i, weekday)]
+        if real_rooms:
+            start_h = int(s[:2])
+            rooms = []
+            for name, days in real_rooms.items():
+                if weekday >= 5:
+                    rooms.append(name)
+                    continue
+                free = days.get(day) or days.get(day.upper()) or []
+                if any(_hour_of(t) == start_h for t in free):
+                    rooms.append(name)
+            total = len(real_rooms)
+        else:
+            rooms = [r for r in NSUT_ROOMS if is_room_vacant(r, i, weekday)]
+            total = len(NSUT_ROOMS)
         out_slots.append({
             "index": i,
             "start": s,
             "end": e,
             "vacant_count": len(rooms),
-            "total": len(NSUT_ROOMS),
-            "rooms": rooms,
+            "total": total,
+            "rooms": sorted(rooms),
             "is_current": i == cur_slot,
         })
     return {
         "weekday": weekday,
-        "weekday_name": ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][weekday],
+        "weekday_name": day,
         "current_slot": cur_slot,
         "chosen_slot": chosen,
         "ist_time": ist_now.strftime("%H:%M"),
+        "source": "ims" if real_rooms else "estimate",
+        "updated_at": (real or {}).get("updated_at").isoformat() if real and real.get("updated_at") else None,
         "slots": out_slots,
     }
 

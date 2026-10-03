@@ -35,6 +35,12 @@ All-in-one campus utility app for NSUT Delhi students: IMS attendance tracking, 
 - NOT done: real IMS room timetable (needs on-device IMS session; vacant rooms still deterministic placeholder).
 - IMS FULL_SYNC_JS untested on real device — user to verify on phone (APK).
 
+## Session 3 additions (done)
+- Bunk Planner: per-subject ✓/✗ stepper (planned attends/bunks) → live projected % + overall projection card; persisted in storage (`nsut_hub_bunk_plan`).
+- Target CGPA tool on results (equal-weight semesters: need = target*(n+1) − cgpa*n).
+- Real room timetable: `FULL_SYNC_JS` also scrapes IMS room timetables (best-effort, Flutter-app URL fallback) → `POST /api/room-timetable` (Mongo `room_timetable`, merged) → `/api/vacant-rooms` uses real data when present (`source: ims|estimate`). Unverified on device.
+- User asked for Vercel deploy + APK: must use Emergent Publish button (agent cannot deploy).
+
 ## Backlog / ideas
 - Real IMS attendance validation on a device (needs user's IMS creds; Expo Go)
 - Trending news real feed

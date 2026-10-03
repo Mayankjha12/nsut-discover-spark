@@ -8,6 +8,7 @@ const KEY_PROFILE = "nsut_hub_profile";
 const KEY_ATTENDANCE = "nsut_hub_attendance";
 const KEY_SESSION_COOKIE = "nsut_hub_session_cookie";
 const KEY_RESULTS = "nsut_hub_results";
+const KEY_BUNK_PLAN = "nsut_hub_bunk_plan";
 
 type Store = {
   getItemAsync: (k: string) => Promise<string | null>;
@@ -50,6 +51,7 @@ export const storage = {
       store.deleteItemAsync(KEY_PROFILE),
       store.deleteItemAsync(KEY_ATTENDANCE),
       store.deleteItemAsync(KEY_SESSION_COOKIE),
+      store.deleteItemAsync(KEY_BUNK_PLAN),
     ]);
   },
   async getProfile(): Promise<any | null> {
@@ -72,5 +74,12 @@ export const storage = {
   },
   async setResults(roll: string, r: any) {
     await store.setItemAsync(`${KEY_RESULTS}_${roll}`, JSON.stringify(r));
+  },
+  async getBunkPlan(): Promise<Record<string, number> | null> {
+    const s = await store.getItemAsync(KEY_BUNK_PLAN);
+    return s ? JSON.parse(s) : null;
+  },
+  async setBunkPlan(p: Record<string, number>) {
+    await store.setItemAsync(KEY_BUNK_PLAN, JSON.stringify(p));
   },
 };

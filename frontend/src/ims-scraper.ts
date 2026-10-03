@@ -272,6 +272,40 @@ export const FULL_SYNC_JS = `
     var overall = tt ? Math.round((tp / tt) * 1000) / 10 : (subjects.length ? Math.round(subjects.reduce(function (a, s) { return a + s.percent; }, 0) / subjects.length * 10) / 10 : null);
     post({ type: "ATTENDANCE_RESULT", subjects: subjects, overall_percent: overall, semester: sem, total_present: tp, total_classes: tt,
            scraped_at: new Date().toISOString(), stat_keys: sk });
+
+    // ---- Room timetables (best-effort, non-fatal) ----
+    try {
+      progress("Reading room timetables…");
+      var roomKey = keys.find(function (k) { return /room/.test(k) && /time|table|schedule/.test(k); }) ||
+                    keys.find(function (k) { return /time\\s*table/.test(k); });
+      var roomUrl = roomKey ? links[roomKey] : "https://www.imsnsit.org/imsnsit/plum_url.php?Xa9HvscdKyH6kL9nKIyCD80Af4YmbpJSlN4qzyQsnhEW752gaaBRKjC5B+5SgxUWzRm0BuyJ0EuNJ8BxklMF6Vjet5gq8CLaWdFN9qBzeu0pGzfeTxg0MznYdBq2W4O3sKNiJJKtD7BpHz30vozHgOKP0ezxpMWh2PtNzR3g6yU";
+      var rf = parseHTML(await get(roomUrl));
+      var encSemcmb = (rf.querySelector("[name=enc_semcmb]") || {}).value || "P0RYCVYHDvjv4ZWnV+lsiPiOE6wbkYUVXnt1gj7ut/9uyy0d8ZkKWDvCKeeG1r0F";
+      var roomSel = rf.querySelector("select[name=room], select[name=roomcode]");
+      var roomNames = roomSel ? [].map.call(roomSel.options, function (o) { return o.value; }).filter(function (v) { return v && !/select/i.test(v); }) : [];
+      if (!roomNames.length) roomNames = ["APJ-01","APJ-02","APJ-03","APJ-04","APJ-05","APJ-06","APJ-07","APJ-08","APJ-09","APJ-10","APJ-11"];
+      roomNames = roomNames.slice(0, 60);
+      var rooms = {};
+      async function one(name) {
+        var doc = parseHTML(await postForm(roomUrl, { roomcode: name, room: name, semcmb: "2-4-6-8", enc_semcmb: encSemcmb, submit: "Go" }));
+        var trs = doc.querySelectorAll("tr");
+        if (trs.length < 7) return;
+        var timeCells = [].slice.call(trs[2].querySelectorAll("td")).slice(3, 11);
+        var times = timeCells.map(function (td) { var b = td.querySelector("b"); var parts = (b ? b.innerHTML : td.innerHTML).split(/<br\\s*\\/?>/i); return txt(parseHTML(parts[parts.length - 1]).body); });
+        var free = {};
+        for (var d = 3; d < Math.min(9, trs.length); d++) {
+          var cells = [].slice.call(trs[d].querySelectorAll("td"));
+          if (cells.length < 11) continue;
+          var day = txt(cells[0]).slice(0, 3);
+          var vals = cells.slice(3, 11).map(txt);
+          free[day] = times.filter(function (t, i) { return !vals[i]; });
+        }
+        rooms[name] = free;
+      }
+      for (var b = 0; b < roomNames.length; b += 6) await Promise.all(roomNames.slice(b, b + 6).map(function (n) { return one(n).catch(function () {}); }));
+      if (Object.keys(rooms).length) post({ type: "ROOMS_RESULT", rooms: rooms, scraped_at: new Date().toISOString() });
+    } catch (e) { post({ type: "ROOMS_ERROR", message: String(e && e.message || e) }); }
+    post({ type: "SYNC_DONE" });
   }
   run().catch(function (e) { post({ type: "SYNC_ERROR", message: String(e && e.message || e) }); });
   true;

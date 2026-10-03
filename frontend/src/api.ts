@@ -30,6 +30,7 @@ export const api = {
   getAttendance: (roll: string) => j(`/attendance/${roll}`),
   results: (roll: string) => j<ResultsResponse>(`/results/${roll}`),
   notices: () => j<NoticesResponse>("/notices"),
+  saveRoomTimetable: (p: any) => j("/room-timetable", { method: "POST", body: JSON.stringify(p) }),
   news: () => j("/news"),
 };
 

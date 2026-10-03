@@ -48,7 +48,7 @@ export default function RoomsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Vacant Rooms</Text>
             <Text style={styles.sub} testID="rooms-ist-time">
-              {q.data ? `${q.data.weekday_name} · ${q.data.ist_time} IST` : "Loading campus timetable…"}
+              {q.data ? `${q.data.weekday_name} · ${q.data.ist_time} IST · ${(q.data as any).source === "ims" ? "live IMS timetable" : "estimated · sync IMS for live"}` : "Loading campus timetable…"}
             </Text>
           </View>
           {slot ? (

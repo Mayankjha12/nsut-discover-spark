@@ -75,6 +75,45 @@ function SemesterCard({ s, best, index }: { s: ResultSemester; best: number | nu
   );
 }
 
+function TargetCgpa({ cgpa, semesters }: { cgpa: number; semesters: number }) {
+  const [target, setTarget] = useState(Math.min(10, Math.ceil(cgpa * 2) / 2 + 0.5));
+  // Equal-weight semesters: needed = target*(n+1) - cgpa*n
+  const need = target * (semesters + 1) - cgpa * semesters;
+  const possible = need <= 10;
+  const bump = (d: number) => setTarget((t) => Math.max(4, Math.min(10, Math.round((t + d) * 10) / 10)));
+  return (
+    <View style={styles.targetCard} testID="results-target-cgpa">
+      <View style={styles.rowBetween}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.section}>Target CGPA</Text>
+          <Text style={styles.semMeta}>What you need next semester</Text>
+        </View>
+        <View style={styles.stepper}>
+          <Pressable testID="target-minus" onPress={() => bump(-0.1)} style={styles.stepBtn} hitSlop={6}>
+            <FeatherIcon name="minus" size={16} color={colors.onSurface} />
+          </Pressable>
+          <Text style={styles.stepVal}>{target.toFixed(1)}</Text>
+          <Pressable testID="target-plus" onPress={() => bump(0.1)} style={styles.stepBtn} hitSlop={6}>
+            <FeatherIcon name="plus" size={16} color={colors.onSurface} />
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.targetResult}>
+        <Text style={[styles.targetNum, { color: possible ? (need > 9 ? colors.warning : colors.success) : colors.error }]}>
+          {possible ? (need <= 0 ? "Any" : need.toFixed(2)) : "—"}
+        </Text>
+        <Text style={styles.targetSub}>
+          {possible
+            ? need <= 0
+              ? `You're already above ${target.toFixed(1)}. Any SGPA keeps you there.`
+              : `SGPA needed in semester ${semesters + 1} to reach ${target.toFixed(1)} CGPA`
+            : `Not reachable in one semester (needs ${need.toFixed(2)}). Try a lower target.`}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function ResultsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -271,6 +310,10 @@ export default function ResultsScreen() {
                 <SemesterCard key={s.semester} s={s} best={best} index={i} />
               ))}
             </View>
+
+            {data.cgpa != null && (data.semesters?.length ?? 0) > 0 ? (
+              <TargetCgpa cgpa={data.cgpa} semesters={data.semesters!.length} />
+            ) : null}
           </>
         ) : null}
 
@@ -367,6 +410,28 @@ const styles = StyleSheet.create({
   cacheRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   cacheText: { color: colors.muted, fontSize: 11 },
   section: { color: colors.onSurface, fontSize: 16, fontWeight: "600" },
+  rowBetween: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  targetCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.lg,
+  },
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: radius.pill,
+    padding: 4,
+  },
+  stepBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
+  stepVal: { color: colors.onSurface, fontSize: 16, fontWeight: "600", minWidth: 40, textAlign: "center" },
+  targetResult: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
+  targetNum: { fontSize: 40, fontWeight: "600", letterSpacing: -1.5, minWidth: 96 },
+  targetSub: { color: colors.muted, fontSize: 13, lineHeight: 18, flex: 1 },
   trendCard: {
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,

@@ -125,10 +125,18 @@ export default function LoginScreen() {
         api
           .saveAttendance({ roll_number: roll.trim(), overall_percent: data.overall_percent, subjects })
           .catch(() => {});
-        setSyncMsg(`Attendance synced — ${subjects.length} subjects`);
-        setTimeout(() => router.replace("/(tabs)"), 600);
+        setSyncMsg(`Attendance synced — ${subjects.length} subjects. Checking rooms…`);
+        // Give room-timetable scrape a few seconds, then go to dashboard regardless.
+        setTimeout(() => router.replace("/(tabs)"), 8000);
         break;
       }
+      case "ROOMS_RESULT":
+        api.saveRoomTimetable({ rooms: data.rooms, roll_number: roll.trim() }).catch(() => {});
+        setSyncMsg("Room timetables synced");
+        break;
+      case "SYNC_DONE":
+        router.replace("/(tabs)");
+        break;
       case "SYNC_ERROR":
         setPhase("error");
         setSyncErr(String(data.message || "Sync failed"));

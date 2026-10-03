@@ -31,13 +31,38 @@ export default function AttendanceScreen() {
   const [data, setData] = useState<any | null>(null);
   const [roll, setRoll] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Bunk planner: planned skips (+) or planned attends (−) per subject code
+  const [plan, setPlan] = useState<Record<string, number>>({});
 
   const load = useCallback(async () => {
-    const [a, c] = await Promise.all([storage.getAttendance(), storage.getRollAndPassword()]);
+    const [a, c, p] = await Promise.all([storage.getAttendance(), storage.getRollAndPassword(), storage.getBunkPlan()]);
     setData(a);
     setRoll(c.roll);
+    setPlan(p ?? {});
     setLoaded(true);
   }, []);
+
+  function adjustPlan(key: string, delta: number) {
+    setPlan((prev) => {
+      const next = { ...prev, [key]: (prev[key] ?? 0) + delta };
+      if (next[key] === 0) delete next[key];
+      storage.setBunkPlan(next);
+      return next;
+    });
+  }
+  const planActive = Object.keys(plan).length > 0;
+  const projected = useMemo(() => {
+    const list: Subject[] = data?.subjects ?? [];
+    let p = 0,
+      t = 0;
+    list.forEach((s) => {
+      if (s.present == null || s.total == null) return;
+      const d = plan[s.code ?? s.name] ?? 0;
+      p += s.present + Math.max(0, -d);
+      t += s.total + Math.abs(d);
+    });
+    return t ? { present: p, total: t, pct: (p / t) * 100 } : null;
+  }, [data, plan]);
 
   useFocusEffect(
     useCallback(() => {
@@ -102,21 +127,49 @@ export default function AttendanceScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 100 }]}
         refreshControl={<RefreshControl refreshing={false} onRefresh={goSync} tintColor={colors.brandPrimary} />}
         ListHeaderComponent={
-          overallBunk ? (
-            <View style={[styles.summary, { borderColor: overallBunk.safe ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)" }]} testID="attendance-bunk-summary">
-              <FeatherIcon name={overallBunk.safe ? "coffee" : "alert-triangle"} size={18} color={overallBunk.safe ? colors.success : colors.error} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.summaryTitle}>
-                  {overallBunk.safe
-                    ? `You can skip ${overallBunk.count} more ${overallBunk.count === 1 ? "class" : "classes"}`
-                    : `Attend the next ${overallBunk.count} ${overallBunk.count === 1 ? "class" : "classes"}`}
-                </Text>
-                <Text style={styles.summarySub}>
-                  {overallBunk.safe ? "and still stay at or above 75% overall." : "in a row to climb back to 75% overall."}
-                </Text>
+          <View style={{ gap: spacing.md }}>
+            {overallBunk ? (
+              <View style={[styles.summary, { borderColor: overallBunk.safe ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)" }]} testID="attendance-bunk-summary">
+                <FeatherIcon name={overallBunk.safe ? "coffee" : "alert-triangle"} size={18} color={overallBunk.safe ? colors.success : colors.error} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryTitle}>
+                    {overallBunk.safe
+                      ? `You can skip ${overallBunk.count} more ${overallBunk.count === 1 ? "class" : "classes"}`
+                      : `Attend the next ${overallBunk.count} ${overallBunk.count === 1 ? "class" : "classes"}`}
+                  </Text>
+                  <Text style={styles.summarySub}>
+                    {overallBunk.safe ? "and still stay at or above 75% overall." : "in a row to climb back to 75% overall."}
+                  </Text>
+                </View>
               </View>
-            </View>
-          ) : null
+            ) : null}
+            {planActive && projected ? (
+              <View style={[styles.summary, { borderColor: colors.borderStrong }]} testID="attendance-plan-summary">
+                <FeatherIcon name="calendar" size={18} color={colors.info} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryTitle}>
+                    Planned: overall → {projected.pct.toFixed(1)}%{" "}
+                    <Text style={{ color: attendanceColor(projected.pct) }}>
+                      ({projected.pct >= 75 ? "safe" : "below 75%"})
+                    </Text>
+                  </Text>
+                  <Text style={styles.summarySub}>
+                    {projected.present}/{projected.total} classes after your planned bunks & attends
+                  </Text>
+                </View>
+                <Pressable
+                  testID="attendance-plan-reset"
+                  onPress={() => {
+                    setPlan({});
+                    storage.setBunkPlan({});
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={styles.resetText}>Reset</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
         }
         ListEmptyComponent={
           loaded ? (
@@ -145,8 +198,14 @@ export default function AttendanceScreen() {
           ) : null
         }
         renderItem={({ item, index }) => {
-          const c = attendanceColor(item.percent);
-          const b = bunkInfo(item.present, item.total);
+          const key = item.code ?? item.name;
+          const d = plan[key] ?? 0;
+          const hasCounts = item.present != null && item.total != null && item.total > 0;
+          const projPresent = hasCounts ? item.present! + Math.max(0, -d) : null;
+          const projTotal = hasCounts ? item.total! + Math.abs(d) : null;
+          const projPct = projPresent != null && projTotal ? (projPresent / projTotal) * 100 : item.percent;
+          const c = attendanceColor(projPct);
+          const b = bunkInfo(projPresent, projTotal);
           return (
             <View style={styles.card} testID={`attendance-subject-${index}`}>
               <View style={styles.cardTop}>
@@ -157,16 +216,16 @@ export default function AttendanceScreen() {
                   {item.code && item.code !== item.name ? <Text style={styles.subjCode}>{item.code}</Text> : null}
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
-                  <Text style={[styles.pct, { color: c }]}>{Math.round(item.percent)}%</Text>
-                  {item.present != null && item.total != null ? (
+                  <Text style={[styles.pct, { color: c }]}>{Math.round(projPct)}%</Text>
+                  {hasCounts ? (
                     <Text style={styles.count}>
-                      {item.present}/{item.total}
+                      {d !== 0 ? `${projPresent}/${projTotal} · was ${Math.round(item.percent)}%` : `${item.present}/${item.total}`}
                     </Text>
                   ) : null}
                 </View>
               </View>
               <View style={styles.bar}>
-                <View style={[styles.barFill, { width: `${Math.max(0, Math.min(100, item.percent))}%`, backgroundColor: c }]} />
+                <View style={[styles.barFill, { width: `${Math.max(0, Math.min(100, projPct))}%`, backgroundColor: c }]} />
                 <View style={styles.threshold} />
               </View>
               {b ? (
@@ -177,7 +236,18 @@ export default function AttendanceScreen() {
                       {b.safe ? `Can skip ${b.count}` : `Attend next ${b.count}`}
                     </Text>
                   </View>
-                  <Text style={styles.hint}>{b.safe ? "and stay ≥ 75%" : "to reach 75%"}</Text>
+                  <Text style={[styles.hint, { flex: 1 }]}>{b.safe ? "and stay ≥ 75%" : "to reach 75%"}</Text>
+                  <View style={styles.planner}>
+                    <Pressable testID={`plan-attend-${index}`} onPress={() => adjustPlan(key, -1)} style={styles.planBtn} hitSlop={6}>
+                      <FeatherIcon name="check" size={14} color={colors.success} />
+                    </Pressable>
+                    <Text style={[styles.planVal, d > 0 && { color: colors.error }, d < 0 && { color: colors.success }]}>
+                      {d > 0 ? `${d} bunk` : d < 0 ? `${-d} go` : "plan"}
+                    </Text>
+                    <Pressable testID={`plan-bunk-${index}`} onPress={() => adjustPlan(key, 1)} style={styles.planBtn} hitSlop={6}>
+                      <FeatherIcon name="x" size={14} color={colors.error} />
+                    </Pressable>
+                  </View>
                 </View>
               ) : (
                 <Text style={styles.hint}>
@@ -241,6 +311,17 @@ const styles = StyleSheet.create({
   bunkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   bunkPill: { flexDirection: "row", alignItems: "center", gap: 6, height: 26, paddingHorizontal: 10, borderRadius: radius.pill },
   bunkText: { fontSize: 12, fontWeight: "600" },
+  planner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: radius.pill,
+    padding: 3,
+  },
+  planBtn: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
+  planVal: { color: colors.muted, fontSize: 11, fontWeight: "600", minWidth: 40, textAlign: "center" },
+  resetText: { color: colors.brandPrimary, fontSize: 13, fontWeight: "500" },
   summary: {
     flexDirection: "row",
     alignItems: "center",
