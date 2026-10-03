@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,12 +48,25 @@ function autofillJS(roll: string, pw: string) {
 }
 
 export default function ImsLoginScreen() {
-  const { roll, pw } = useLocalSearchParams<{ roll: string; pw: string }>();
+  const params = useLocalSearchParams<{ roll: string; pw: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const webRef = useRef<WebView>(null);
   const [status, setStatus] = useState<string>("Opening IMS portal…");
   const [loggedIn, setLoggedIn] = useState(false);
+  const [attendanceCaptured, setAttendanceCaptured] = useState(false);
+  // Credentials: prefer route params, otherwise fall back to what's saved on device (Resync flow).
+  const [creds, setCreds] = useState<{ roll: string; pw: string } | null>(
+    params.pw ? { roll: String(params.roll || ""), pw: String(params.pw) } : null,
+  );
+  useEffect(() => {
+    if (creds) return;
+    storage.getRollAndPassword().then((c) =>
+      setCreds({ roll: String(params.roll || c.roll || ""), pw: String(c.password || "") }),
+    );
+  }, [creds, params.roll]);
+  const roll = creds?.roll ?? "";
+  const pw = creds?.pw ?? "";
 
   function onMessage(ev: WebViewMessageEvent) {
     try {
@@ -77,15 +90,18 @@ export default function ImsLoginScreen() {
         };
         storage.setProfile(profile);
         api.saveProfile(profile).catch(() => {});
-        setStatus("Profile captured. Opening dashboard…");
-        setTimeout(() => router.replace("/(tabs)"), 800);
+        setStatus("Profile saved. Open the Attendance page in IMS to capture it.");
       } else if (data.type === "ATTENDANCE_RESULT") {
+        const subjects = Array.isArray(data.subjects) ? data.subjects : [];
+        if (!subjects.length) return;
         storage.setAttendance(data);
+        setAttendanceCaptured(true);
+        setStatus(`Attendance captured — ${subjects.length} subjects. Tap Continue.`);
         api
           .saveAttendance({
             roll_number: String(roll || ""),
             overall_percent: data.overall_percent,
-            subjects: data.subjects || [],
+            subjects,
           })
           .catch(() => {});
       }
@@ -119,6 +135,7 @@ export default function ImsLoginScreen() {
             IMS NSUT only loads inside a real mobile WebView. Scan the Expo Go QR to continue.
           </Text>
           <Pressable
+            testID="web-continue-demo"
             onPress={async () => {
               await storage.setRollAndPassword(String(roll || "guest"), String(pw || ""));
               router.replace("/(tabs)");
@@ -127,6 +144,10 @@ export default function ImsLoginScreen() {
           >
             <Text style={styles.webCtaText}>Continue to demo dashboard</Text>
           </Pressable>
+        </View>
+      ) : !creds ? (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator color={colors.brandPrimary} />
         </View>
       ) : (
         <WebView
@@ -151,6 +172,10 @@ export default function ImsLoginScreen() {
               webRef.current?.injectJavaScript(DETECT_LOGIN_JS);
             }
           }}
+          onLoadEnd={() => {
+            // Once logged in, scan every page the student opens for an attendance table.
+            if (loggedIn) webRef.current?.injectJavaScript(ATTENDANCE_SCRAPE_JS);
+          }}
           style={{ flex: 1, backgroundColor: colors.surface }}
           testID="ims-webview"
         />
@@ -160,9 +185,11 @@ export default function ImsLoginScreen() {
         <Pressable
           testID="skip-to-dashboard"
           onPress={() => router.replace("/(tabs)")}
-          style={[styles.doneBtn, { bottom: insets.bottom + 16 }]}
+          style={[styles.doneBtn, { bottom: insets.bottom + 16 }, attendanceCaptured && { backgroundColor: colors.success }]}
         >
-          <Text style={styles.doneBtnText}>Continue to Dashboard</Text>
+          <Text style={styles.doneBtnText}>
+            {attendanceCaptured ? "Attendance saved — Continue" : "Continue to Dashboard"}
+          </Text>
         </Pressable>
       ) : null}
     </View>
@@ -191,7 +218,7 @@ const styles = StyleSheet.create({
   },
   topTitle: { color: colors.onSurface, fontSize: 16, fontWeight: "500" },
   topSub: { color: colors.muted, fontSize: 11 },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, gap: 12 },
+  loadingOverlay: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, gap: 12 },
   loadingText: { color: colors.muted },
   webFallback: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.lg },
   webTitle: { color: colors.onSurface, fontSize: 20, fontWeight: "500" },

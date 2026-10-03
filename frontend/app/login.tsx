@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,7 +8,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -56,21 +54,21 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.root} testID="login-root">
-      <Image source={{ uri: HERO }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+      <Image source={{ uri: HERO }} style={StyleSheet.absoluteFill} contentFit="cover" />
       <LinearGradient
         colors={["rgba(15,17,21,0.4)", "rgba(15,17,21,0.9)", colors.surface]}
         locations={[0, 0.55, 1]}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <ScrollView
-            contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 }]}
-            keyboardShouldPersistTaps="handled"
-          >
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
             <View style={styles.brandWrap} testID="brand-mark">
               <View style={styles.logoBadge}>
                 <Text style={styles.logoBadgeText}>N</Text>
@@ -150,7 +148,6 @@ export default function LoginScreen() {
               <Text style={styles.skipText}>Skip for now — explore vacant rooms →</Text>
             </Pressable>
           </ScrollView>
-        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </View>
   );

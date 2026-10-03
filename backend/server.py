@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, time as dtime
+from zoneinfo import ZoneInfo
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -169,11 +170,8 @@ async def get_attendance(roll_number: str):
 # ---- Vacant rooms ----
 @api_router.get("/vacant-rooms")
 async def vacant_rooms(slot: Optional[int] = None):
-    now = datetime.now(timezone.utc)
-    # NSUT IST is UTC+5:30; adjust for slot calculation
-    ist_now_minutes = (now.hour * 60 + now.minute + 330) % (24 * 60)
-    ist_hour, ist_min = ist_now_minutes // 60, ist_now_minutes % 60
-    ist_now = datetime(now.year, now.month, now.day, ist_hour, ist_min)
+    # NSUT IST is UTC+5:30
+    ist_now = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
     weekday = ist_now.weekday()
     cur_slot = current_slot_index(ist_now)
     chosen = slot if slot is not None else cur_slot

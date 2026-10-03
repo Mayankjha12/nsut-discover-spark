@@ -1,0 +1,38 @@
+{
+  "summary": "First full test pass for NSUT Hub. Backend: 11/11 pytest cases pass against public URL (health, vacant-rooms default + ?slot=3, slot indexing, news, results scrape for 2023UCS1234 returns 200 + ok:true, profile upsert+GET persistence, attendance upsert+GET persistence, null returns for missing rolls). Frontend (390x844): login-root renders, Skip-for-now lands on home-root with 'Not synced yet' attendance card, live strip showing room count, all 4 quick action tiles (rooms/attendance/results/news) render and navigate correctly. Rooms screen shows weekday+IST time, count badge, 10 slot chips, block-grouped list; Saturday run surfaced the weekend banner and all 36 rooms free. Attendance tab shows filter chips (all/theory/practical) + empty-sync CTA that routes to /login for guest. More tab shows Guest profile card and all 4 rows navigate (results, news, resync->/login, logout clears storage and returns to /login). Results screen (guest) shows roll input + lookup button; entering 2023UCS1234 renders results-cgpa-card with real CGPA data. News screen renders hero + 'Trending\\nSoon.' text and both news-back / news-back-home work. No red screen, no console errors; one deprecation warning only (TouchableWithoutFeedback in login.tsx).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "TouchableWithoutFeedback", "issue": "Deprecation warning on web console: 'TouchableWithoutFeedback is deprecated. Please use Pressable.' Reference: /app/frontend/app/login.tsx:12 (and :69 usage wrapping ScrollView for keyboard dismiss). Replace with Pressable to future-proof."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_nsut_hub_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Low priority: Replace TouchableWithoutFeedback in app/login.tsx with Pressable (or a keyboard-dismiss View) to silence RN deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py vacant-rooms: IST conversion builds a datetime from UTC year/month/day with IST hour/minute; this is incorrect across date boundaries (e.g. late UTC evening maps to next-day IST, but weekday still uses UTC date). Low impact in practice but worth switching to zoneinfo('Asia/Kolkata').",
+    "server.py results endpoint: scrape returns ok:false silently on exceptions — fine for UX, but logger.exception would help debugging; also no caching so each call hits resulthubnsut.com.",
+    "server.py uses deprecated @app.on_event('shutdown'); FastAPI recommends lifespan handlers.",
+    "api_router.get('/profile/{roll_number}', response_model=Optional[...]) returning None works but is unconventional — a 404 would be more RESTful."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py",
+    "/app/backend/tests/test_nsut_hub_api.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Each test run inserts TEST_<uuid> prefixed profile + attendance docs in Mongo. Minor cleanup not required (prefixed, non-colliding).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: EXPO_PUBLIC_BACKEND_URL=https://nsut-hub.preview.emergentagent.com. Guest flow: tap [data-testid=skip-button] on /login → lands on /(tabs) home. ResultHub scrape for 2023UCS1234 currently returns ok:true with a CGPA value; tests therefore accept either ok:true or ok:false. Vacant-rooms total is 36 (not 35). IMS WebView is native-only — not tested here.",
+  "rca_of_issue": "No bugs found. One deprecation warning (TouchableWithoutFeedback) addressed in action_items."
+}

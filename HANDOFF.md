@@ -51,7 +51,10 @@ All endpoints prefixed with `/api`:
 - `app/ims-login.tsx` — **WebView to IMS portal**: autofills roll/password, listens for login-success URL change, scrapes profile via injected JS, calls backend to persist, then redirects to `/(tabs)`. On web shows "open on mobile" fallback.
 - `app/(tabs)/_layout.tsx` — 4-tab layout (Home / Attendance / Rooms / More) with `BlurView` tab-bar background
 
-## 🚧 TODO (what the next session must build)
+## 🚧 Status: ALL SCREENS BUILT & TESTED ✅ (see /app/memory/PRD.md)
+The sections below were the original TODO — all are now complete.
+
+## ~~TODO~~ (done)
 
 ### 1. `/app/frontend/app/(tabs)/index.tsx` — Home Dashboard
 Hero section with:

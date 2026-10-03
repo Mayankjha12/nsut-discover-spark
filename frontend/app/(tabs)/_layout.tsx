@@ -27,7 +27,7 @@ export default function TabsLayout() {
             <BlurView
               tint="dark"
               intensity={60}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
           ),
       }}
