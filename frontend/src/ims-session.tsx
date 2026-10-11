@@ -62,7 +62,7 @@ export function IMSSessionProvider({ children }: { children: ReactNode }) {
       if (!token.current) return;
       if (finished.current) { if (Date.now() - attempted.current >= REFRESH_MS) { begin(); return; } if (pathRef.current === '/login') web.current?.injectJavaScript(automaticPortal(token.current, false)); return; }
       const elapsed = Date.now() - started.current;
-      if (elapsed > 65_000 && !received.current) { finished.current = true; setPhase('failed'); setMessage('IMS is taking too long. Check your connection and try again. Saved reports are kept.'); return; }
+      if (elapsed > 65_000 && !received.current) { attempted.current = Date.now(); finished.current = true; setPhase('failed'); setMessage('IMS is taking too long. Check your connection and try again. Saved reports are kept.'); return; }
       if (elapsed > 25_000 && !received.current) { setPhase('failed'); setMessage('IMS returned no usable page. Try again later or check the official portal.'); }
       web.current?.injectJavaScript(automaticPortal(token.current, Date.now() - attempted.current >= REFRESH_MS));
     }, 1500);

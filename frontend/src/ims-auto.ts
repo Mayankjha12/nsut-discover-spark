@@ -31,7 +31,8 @@ const AUTO_JS = String.raw`async function run(requestId, collect, readReport) {
   const logout = find(/^log\s*out$|^sign\s*out$/i);
   const hasLogin = docs.some(d => d.querySelector('input[type=password]'));
   send({ type: 'health', content: hasLogin || !!logout });
-  if (!logout) { if (hasLogin) send({ type: 'needs-login' }); return; }
+  if (hasLogin) { send({ type: 'needs-login' }); return; }
+  if (!logout) return;
   // Watch same-origin frame navigation without sending page contents over the bridge.
   const signature = docs.map(d => d.URL + ':' + (d.body?.textContent || '')).join('|');
   if (!collect) {
@@ -47,7 +48,7 @@ const AUTO_JS = String.raw`async function run(requestId, collect, readReport) {
     if (!safe(url)) throw Error('unsafe');
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      const response = await fetch(url, { credentials: 'same-origin', redirect: 'error', ...options, signal: controller.signal });
+      const response = await fetch(url, { credentials: 'same-origin', redirect: 'error', cache: 'no-store', ...options, signal: controller.signal });
       if (!response.ok) throw Error('network');
       const html = await response.text(); if (html.length > 2000000) throw Error('size');
       const doc = new DOMParser().parseFromString(html, 'text/html');

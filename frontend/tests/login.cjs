@@ -60,7 +60,7 @@ async function run({ html = home, routes = {}, collect = true, nested = false } 
   assert(attendance); assert.equal(academic.normalizeSubjects(attendance.rows)[0].percent,75);
   assert.equal(academic.normalizeTimetable(result.messages.find(m=>m.kind==='timetable').rows)[0].room,'APJ-01');
   assert.equal(result.messages.at(-1).type,'complete'); assert.equal(result.requests.length,4);
-  assert(result.requests.every(r=>r.options.credentials==='same-origin' && r.options.redirect==='error'));
+  assert(result.requests.every(r=>r.options.credentials==='same-origin' && r.options.redirect==='error' && r.options.cache==='no-store'));
   console.log('PASS discovered report links, profile identity, automatic attendance/timetable parsing');
   result = await run({routes,nested:true});
   assert(result.messages.some(m=>m.type==='authenticated'));
@@ -68,6 +68,8 @@ async function run({ html = home, routes = {}, collect = true, nested = false } 
   result = await run({html:'<form><input type="password" value="do-not-read"><input name="cap" value="captcha"><img id="captchaimg"></form>'});
   assert.equal(result.requests.length,0); assert(result.messages.some(m=>m.type==='needs-login'));
   assert(!JSON.stringify(result.messages).includes('do-not-read')); assert(!result.messages.some(m=>m.type==='authenticated'));
+  result = await run({html:home+'<form><input type="password"></form>',routes});
+  assert.equal(result.requests.length,0); assert(!result.messages.some(m=>m.type==='authenticated'));
   result = await run({html:'<p>IMS banner text with no usable student sign in form</p>'});
   assert.equal(result.messages.find(m=>m.type==='health').content,false);
   assert.equal(result.requests.length,0);
