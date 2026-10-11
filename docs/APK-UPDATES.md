@@ -8,7 +8,7 @@ https://github.com/Mayankjha12/nsut-discover-spark/releases/latest/download/nsut
 
 ## One-time setup
 
-1. Give this Coding Agent's GitHub connection write access to this repository. The current push attempt is rejected with HTTP403. Once allowed, the reviewed workspace changes can be pushed to the assigned branch and merged into `main`.
+1. The changes are pushed to `coderabbit/build-downloadable-android-apk/53d98947`. Configure the backend and secrets below, then review and merge that branch into `main` to enable public release publication.
 2. Deploy the FastAPI backend and MongoDB following `deployment/README.md`. An APK build is not a backend deployment.
 3. In GitHub → repository **Settings → Secrets and variables → Actions**, add:
 
@@ -38,4 +38,4 @@ The workflow writes temporary signing files under `RUNNER_TEMP`, removes them af
 
 ## Current verification status
 
-The workflow is prepared locally. It cannot be executed or publish a release until GitHub write access, the three signing secrets and a live HTTPS API origin are configured. Local workflow syntax/versioning checks are separate from a successful hosted Actions run. The APK's live IMS authentication/device checks remain outstanding as documented in `docs/IMPLEMENTATION.md`.
+The workflow is pushed and its first hosted run reached the configuration check. It failed there because `EXPO_PUBLIC_BACKEND_URL` was empty; all three signing secrets were also empty. Configure these values before rerunning. No APK release has been published. Local workflow syntax/versioning checks passed. The hosted Android compilation/signing stages have not run. The APK's live IMS authentication/device checks remain outstanding as documented in `docs/IMPLEMENTATION.md`.
