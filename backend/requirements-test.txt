@@ -1,0 +1,4 @@
+-r requirements-deploy.txt
+pytest==8.4.2
+pytest-xdist==3.8.0
+httpx==0.27.2

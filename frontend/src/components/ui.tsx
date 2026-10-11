@@ -1,4 +1,4 @@
-import { Platform, Pressable, StyleSheet, View, ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { BlurView } from "expo-blur";
 import { ReactNode } from "react";
 import { colors, radius } from "../theme";
@@ -64,7 +64,6 @@ export function Pill({ label, selected, onPress, testID }: PillProps) {
   );
 }
 
-import { Text } from "react-native";
 function PillText({ label, selected }: { label: string; selected: boolean }) {
   return (
     <Text style={{ color: selected ? colors.onBrandPrimary : colors.onSurfaceSecondary, fontSize: 13, fontWeight: "500" }}>

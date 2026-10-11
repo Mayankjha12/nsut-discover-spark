@@ -1,393 +1,163 @@
-from fastapi import FastAPI, APIRouter, HTTPException
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+"""Public campus information. IMS credentials/sessions and student records never enter this API."""
+import asyncio
+import hashlib
 import logging
+import os
+import secrets
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-import uuid
-from datetime import datetime, timezone, time as dtime
-from zoneinfo import ZoneInfo
-import re
+from urllib.parse import urljoin, urlparse
+
 import requests
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from motor.motor_asyncio import AsyncIOMotorClient
+from starlette.middleware.cors import CORSMiddleware
+from schedules import Schedule, availability
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
+load_dotenv(Path(__file__).parent / '.env')
+logger = logging.getLogger('nsut-hub')
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db_name = os.environ['DB_NAME']
+client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000, socketTimeoutMS=8000, tz_aware=True)
+db = client[db_name]
+MAX_AGE = max(60, min(int(os.environ.get('SCHEDULE_MAX_AGE_SECONDS', '86400')), 604800))
+NOTICES_URL = 'https://nsut.ac.in/en/home'
 
-app = FastAPI(title="NSUT Hub API")
-api_router = APIRouter(prefix="/api")
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("nsut-hub")
-
-
-# ============================================================
-# Models
-# ============================================================
-class StudentProfile(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    roll_number: str
-    name: Optional[str] = ""
-    branch: Optional[str] = ""
-    year: Optional[str] = ""
-    section: Optional[str] = ""
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class ScrapedAttendance(BaseModel):
-    roll_number: str
-    overall_percent: Optional[float] = None
-    subjects: List[Dict[str, Any]] = []
-    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class SaveAttendanceInput(BaseModel):
-    roll_number: str
-    overall_percent: Optional[float] = None
-    subjects: List[Dict[str, Any]] = []
-
-
-# ============================================================
-# NSUT classroom pool / common timetable approximation
-# ============================================================
-# Rooms commonly used across NSUT APJ, Lecture Hall & Block II buildings.
-# When accurate IMS timetable isn't available server-side, we simulate
-# vacancy using deterministic hash per (room, time-slot, weekday).
-NSUT_ROOMS = [
-    "APJ-101", "APJ-102", "APJ-103", "APJ-104", "APJ-201", "APJ-202",
-    "APJ-203", "APJ-204", "APJ-301", "APJ-302", "APJ-303", "APJ-304",
-    "LH-01", "LH-02", "LH-03", "LH-04", "LH-05", "LH-06", "LH-07", "LH-08",
-    "LT-01", "LT-02", "LT-03", "LT-04",
-    "B2-101", "B2-102", "B2-201", "B2-202", "B2-301", "B2-302",
-    "ECE-01", "ECE-02", "CSE-01", "CSE-02", "ME-01", "ME-02",
-]
-
-# Common NSUT class slots
-TIME_SLOTS = [
-    ("08:00", "09:00"), ("09:00", "10:00"), ("10:00", "11:00"),
-    ("11:00", "12:00"), ("12:00", "13:00"), ("13:00", "14:00"),
-    ("14:00", "15:00"), ("15:00", "16:00"), ("16:00", "17:00"),
-    ("17:00", "18:00"),
-]
-
-
-def _slot_hash(room: str, slot_idx: int, weekday: int) -> int:
-    return (hash(f"{room}-{slot_idx}-{weekday}") & 0x7FFFFFFF)
-
-
-def is_room_vacant(room: str, slot_idx: int, weekday: int) -> bool:
-    # Weekends free
-    if weekday >= 5:
-        return True
-    # Lunch slot (12-13 and 13-14) often has lower occupancy
-    if slot_idx in (4, 5):
-        return _slot_hash(room, slot_idx, weekday) % 10 < 7
-    # Otherwise ~45% vacancy during peak hours
-    return _slot_hash(room, slot_idx, weekday) % 100 < 45
-
-
-def current_slot_index(now: datetime) -> Optional[int]:
-    hhmm = now.strftime("%H:%M")
-    for i, (s, e) in enumerate(TIME_SLOTS):
-        if s <= hhmm < e:
-            return i
-    return None
-
-
-# ============================================================
-# Routes
-# ============================================================
-@api_router.get("/")
-async def root():
-    return {"message": "NSUT Hub API running", "version": "1.0.0"}
-
-
-@api_router.get("/health")
-async def health():
-    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()}
-
-
-# ---- Profile persistence (after webview login succeeds) ----
-@api_router.post("/profile", response_model=StudentProfile)
-async def upsert_profile(p: StudentProfile):
-    data = p.model_dump()
-    data["created_at"] = data["created_at"].isoformat()
-    await db.profiles.update_one(
-        {"roll_number": p.roll_number}, {"$set": data}, upsert=True
-    )
-    return p
-
-
-@api_router.get("/profile/{roll_number}", response_model=Optional[StudentProfile])
-async def get_profile(roll_number: str):
-    doc = await db.profiles.find_one({"roll_number": roll_number}, {"_id": 0})
-    if not doc:
-        return None
-    if isinstance(doc.get("created_at"), str):
-        try:
-            doc["created_at"] = datetime.fromisoformat(doc["created_at"])
-        except Exception:
-            doc["created_at"] = datetime.now(timezone.utc)
-    return StudentProfile(**doc)
-
-
-# ---- Cached attendance from WebView scrape ----
-@api_router.post("/attendance", response_model=ScrapedAttendance)
-async def save_attendance(payload: SaveAttendanceInput):
-    rec = ScrapedAttendance(
-        roll_number=payload.roll_number,
-        overall_percent=payload.overall_percent,
-        subjects=payload.subjects,
-    )
-    doc = rec.model_dump()
-    doc["last_updated"] = doc["last_updated"].isoformat()
-    await db.attendance.update_one(
-        {"roll_number": payload.roll_number}, {"$set": doc}, upsert=True
-    )
-    return rec
-
-
-@api_router.get("/attendance/{roll_number}", response_model=Optional[ScrapedAttendance])
-async def get_attendance(roll_number: str):
-    doc = await db.attendance.find_one({"roll_number": roll_number}, {"_id": 0})
-    if not doc:
-        return None
-    if isinstance(doc.get("last_updated"), str):
-        try:
-            doc["last_updated"] = datetime.fromisoformat(doc["last_updated"])
-        except Exception:
-            doc["last_updated"] = datetime.now(timezone.utc)
-    return ScrapedAttendance(**doc)
-
-
-# ---- Vacant rooms ----
-DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-
-def _hour_of(label: str) -> Optional[int]:
-    m = re.search(r"(\d{1,2})", label or "")
-    if not m:
-        return None
-    h = int(m.group(1))
-    # IMS labels like "2-3" mean 14:00-15:00
-    if h < 8:
-        h += 12
-    return h
-
-
-class RoomTimetablePayload(BaseModel):
-    roll_number: Optional[str] = None
-    rooms: Dict[str, Dict[str, List[str]]]  # room -> day(Mon..) -> free time labels
-
-
-@api_router.post("/room-timetable")
-async def save_room_timetable(payload: RoomTimetablePayload):
-    """Real IMS room timetables scraped on-device; merged into the shared pool."""
-    if not payload.rooms:
-        raise HTTPException(status_code=400, detail="rooms required")
-    existing = await db.room_timetable.find_one({"key": "ims"}, {"_id": 0}) or {"rooms": {}}
-    merged = {**existing.get("rooms", {}), **payload.rooms}
-    await db.room_timetable.update_one(
-        {"key": "ims"},
-        {"$set": {"key": "ims", "rooms": merged, "updated_at": datetime.now(timezone.utc), "by": payload.roll_number}},
-        upsert=True,
-    )
-    return {"ok": True, "rooms": len(merged)}
-
-
-@api_router.get("/vacant-rooms")
-async def vacant_rooms(slot: Optional[int] = None):
-    # NSUT IST is UTC+5:30
-    ist_now = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
-    weekday = ist_now.weekday()
-    cur_slot = current_slot_index(ist_now)
-    chosen = slot if slot is not None else cur_slot
-    real = await db.room_timetable.find_one({"key": "ims"}, {"_id": 0})
-    real_rooms: Dict[str, Dict[str, List[str]]] = (real or {}).get("rooms") or {}
-    day = DAY_NAMES[weekday]
-    out_slots = []
-    for i, (s, e) in enumerate(TIME_SLOTS):
-        if real_rooms:
-            start_h = int(s[:2])
-            rooms = []
-            for name, days in real_rooms.items():
-                if weekday >= 5:
-                    rooms.append(name)
-                    continue
-                free = days.get(day) or days.get(day.upper()) or []
-                if any(_hour_of(t) == start_h for t in free):
-                    rooms.append(name)
-            total = len(real_rooms)
-        else:
-            rooms = [r for r in NSUT_ROOMS if is_room_vacant(r, i, weekday)]
-            total = len(NSUT_ROOMS)
-        out_slots.append({
-            "index": i,
-            "start": s,
-            "end": e,
-            "vacant_count": len(rooms),
-            "total": total,
-            "rooms": sorted(rooms),
-            "is_current": i == cur_slot,
-        })
-    return {
-        "weekday": weekday,
-        "weekday_name": day,
-        "current_slot": cur_slot,
-        "chosen_slot": chosen,
-        "ist_time": ist_now.strftime("%H:%M"),
-        "source": "ims" if real_rooms else "estimate",
-        "updated_at": (real or {}).get("updated_at").isoformat() if real and real.get("updated_at") else None,
-        "slots": out_slots,
-    }
-
-
-# ---- Results (ResultHub NSUT JSON API, cached in Mongo) ----
-RESULTHUB_API = "https://api.resulthubnsut.com/api/nsut/students/{roll}"
-RESULTS_TTL_SEC = 6 * 3600
-UA = {"User-Agent": "Mozilla/5.0 (NSUT Hub)"}
-
-
-def _shape_results(roll: str, d: Dict[str, Any]) -> Dict[str, Any]:
-    sems = []
-    for s in d.get("semesters") or []:
-        sems.append({
-            "semester": str(s.get("semester", "")),
-            "sgpa": s.get("sgpa"),
-            "credits_registered": str(s.get("credits_registered", "")),
-            "credits_secured": str(s.get("credits_secured", "")),
-            "subjects": [
-                {"subject_code": x.get("subject_code"), "grade": x.get("grade"), "credits": x.get("marks")}
-                for x in (s.get("subjects") or [])
-            ],
-        })
-    return {
-        "ok": True,
-        "roll_number": roll,
-        "url": f"https://www.resulthubnsut.com/student/{roll}",
-        "name": d.get("name"),
-        "branch_code": d.get("branch_code"),
-        "year_of_study": d.get("year_of_study"),
-        "cgpa": d.get("cgpa"),
-        "rank": d.get("rank"),
-        "branch_rank": d.get("branch_rank"),
-        "percentile": d.get("percentile"),
-        "credits_completed": d.get("credits_completed"),
-        "semester_sgpas": [s["sgpa"] for s in sems if s.get("sgpa") is not None],
-        "semesters": sems,
-        "grade_distribution": (d.get("stats") or {}).get("grade_distribution") or {},
-        "total_subjects": (d.get("stats") or {}).get("total_subjects"),
-    }
-
-
-@api_router.get("/results/{roll_number}")
-async def results(roll_number: str):
-    roll = roll_number.strip().upper()
-    now = datetime.now(timezone.utc)
-    cached = await db.results_cache.find_one({"roll_number": roll}, {"_id": 0})
-    if cached:
-        age = (now - cached["fetched_at"].replace(tzinfo=timezone.utc)).total_seconds()
-        if age < RESULTS_TTL_SEC:
-            return {**cached["data"], "cached": True, "fetched_at": cached["fetched_at"].isoformat()}
+@asynccontextmanager
+async def lifespan(app):
+    # Mongo's unique _id index handles upserts; TTL applies only to public notice cache.
     try:
-        r = requests.get(RESULTHUB_API.format(roll=roll), timeout=12, headers=UA)
-        body = r.json() if r.content else {}
-        if r.status_code == 404 or (isinstance(body, dict) and body.get("success") is False):
-            if cached:
-                return {**cached["data"], "cached": True, "stale": True, "fetched_at": cached["fetched_at"].isoformat()}
-            return {"ok": False, "error": body.get("message") or "Roll number not found on ResultHub",
-                    "url": f"https://www.resulthubnsut.com/student/{roll}"}
-        r.raise_for_status()
-        data = _shape_results(roll, body.get("data") or {})
-        await db.results_cache.update_one(
-            {"roll_number": roll}, {"$set": {"roll_number": roll, "data": data, "fetched_at": now}}, upsert=True
-        )
-        return {**data, "cached": False, "fetched_at": now.isoformat()}
-    except Exception as e:
-        logger.exception("results fetch failed")
-        if cached:
-            return {**cached["data"], "cached": True, "stale": True, "fetched_at": cached["fetched_at"].isoformat()}
-        return {"ok": False, "error": str(e), "url": f"https://www.resulthubnsut.com/student/{roll}"}
+        await db.notices_cache.create_index('expires_at', expireAfterSeconds=0)
+    except Exception:
+        logger.warning('Database initialization unavailable; readiness will remain unhealthy')
+    yield
+    client.close()
 
+app = FastAPI(title='NSUT Discover Spark API', version='2.0.0', lifespan=lifespan)
+origins = [s.strip() for s in os.environ.get('CORS_ORIGINS', 'http://localhost:8081').split(',') if s.strip()]
+if '*' in origins:
+    raise RuntimeError('CORS_ORIGINS must list explicit web origins')
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=['GET', 'PUT'], allow_headers=['Content-Type', 'Authorization'])
 
-# ---- Campus notices (nsut.ac.in, cached 1h) ----
-NOTICES_URL = "https://nsut.ac.in/en/home"
-NOTICES_TTL_SEC = 3600
+class BodyLimit:
+    def __init__(self, app): self.app = app
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http': return await self.app(scope, receive, send)
+        chunks, length = [], 0
+        while True:
+            message = await receive()
+            if message['type'] == 'http.disconnect': return
+            length += len(message.get('body', b''))
+            if length > 1_000_000:
+                return await JSONResponse({'detail': 'Request is too large'}, 413)(scope, receive, send)
+            chunks.append(message)
+            if not message.get('more_body'): break
+        async def replay(): return chunks.pop(0) if chunks else await receive()
+        await self.app(scope, replay, send)
+app.add_middleware(BodyLimit)
 
+@app.exception_handler(RequestValidationError)
+async def invalid_input(request, exc):
+    # Do not echo submitted values (or accidental secrets) in validation errors.
+    return JSONResponse(status_code=422, content={'detail': 'Invalid data. Check the documented schedule schema and field limits.'})
 
-def _scrape_notices() -> List[Dict[str, Any]]:
-    r = requests.get(NOTICES_URL, timeout=15, headers=UA, verify=False)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-    items: List[Dict[str, Any]] = []
-    seen = set()
-    for a in soup.find_all("a", href=True):
-        title = a.get_text(" ", strip=True)
-        href = a["href"].strip()
-        if len(title) < 12 or href in ("#", "") or title in seen:
-            continue
-        in_marquee = a.find_parent("marquee") is not None
-        if not in_marquee:
-            continue
-        if href.startswith("/"):
-            href = "https://nsut.ac.in" + href
-        parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
-        is_new = parent_text.endswith("New") or " New" in parent_text[len(title):]
-        seen.add(title)
-        items.append({"title": title, "url": href, "is_new": bool(is_new), "source": "nsut.ac.in"})
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    logger.error('Request failed (%s)', type(exc).__name__)
+    return JSONResponse(status_code=503, content={'detail': 'Campus service is temporarily unavailable. Please try again later.'})
+
+@app.get('/api/')
+async def root(): return {'message': 'NSUT Discover Spark API', 'version': '2.0.0'}
+
+@app.get('/api/health')
+async def health(): return {'ok': True, 'ts': datetime.now(timezone.utc).isoformat()}
+
+@app.get('/api/ready')
+async def ready():
+    try: await client.admin.command('ping')
+    except Exception: raise HTTPException(503, 'Database unavailable')
+    return {'ok': True}
+
+bearer = HTTPBearer(auto_error=False)
+async def admin(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    configured = os.environ.get('SCHEDULE_ADMIN_TOKEN', '')
+    if len(configured) < 32: raise HTTPException(503, 'Schedule publishing is not configured')
+    if credentials is None or not secrets.compare_digest(credentials.credentials, configured):
+        raise HTTPException(401, 'Valid administrator authorization required', headers={'WWW-Authenticate': 'Bearer'})
+
+@app.put('/api/admin/room-schedule', dependencies=[Depends(admin)])
+async def import_schedule(schedule: Schedule):
+    data = schedule.model_dump(mode='json')
+    revision = hashlib.sha256(schedule.model_dump_json().encode()).hexdigest()
+    # Atomic replacement prevents merges mixing different semesters. Same input is safe to retry.
+    await db.room_schedules.replace_one({'_id': 'current'}, {'_id': 'current', 'data': data, 'revision': revision}, upsert=True)
+    return {'ok': True, 'revision': revision, 'rooms': len(schedule.rooms)}
+
+@app.get('/api/rooms')
+@app.get('/api/vacant-rooms')
+async def rooms():
+    row = await db.room_schedules.find_one({'_id': 'current'})
+    schedule = Schedule.model_validate(row['data']) if row else None
+    return availability(schedule, datetime.now(timezone.utc), MAX_AGE)
+
+@app.get('/api/results/{roll_number}')
+async def results(roll_number: str):
+    # Backward-compatible route with no scraping or disclosure of student results.
+    return {'status': 'coming_soon', 'message': 'Results are under development.'}
+
+@app.get('/api/news')
+async def news(): return {'status': 'coming_soon', 'message': 'Student news is under development. Official notices are available separately.'}
+
+# A Mongo lease suppresses duplicate upstream requests across workers and users.
+def scrape_notices():
+    with requests.get(NOTICES_URL, timeout=(4, 10), headers={'User-Agent': 'NSUT-Discover-Spark/2.0 (public campus notices)'}, stream=True) as response:
+        response.raise_for_status()
+        payload = bytearray()
+        for chunk in response.iter_content(16384):
+            payload.extend(chunk)
+            if len(payload) > 2_000_000: raise ValueError('Upstream response too large')
+    soup = BeautifulSoup(payload, 'html.parser')
+    items, seen = [], set()
+    for anchor in soup.select('marquee a[href]'):
+        title = anchor.get_text(' ', strip=True)
+        url = urljoin(NOTICES_URL, anchor['href'])
+        parsed = urlparse(url)
+        if len(title) < 12 or parsed.scheme != 'https' or parsed.username or parsed.password or url in seen: continue
+        seen.add(url)
+        items.append({'title': title[:500], 'url': url, 'source': 'nsut.ac.in'})
+        if len(items) >= 100: break
+    if not items: raise ValueError('Notice format unavailable')
     return items
 
-
-@api_router.get("/notices")
+@app.get('/api/notices')
 async def notices():
     now = datetime.now(timezone.utc)
-    cached = await db.notices_cache.find_one({"key": "nsut"}, {"_id": 0})
-    if cached:
-        age = (now - cached["fetched_at"].replace(tzinfo=timezone.utc)).total_seconds()
-        if age < NOTICES_TTL_SEC:
-            return {"ok": True, "items": cached["items"], "cached": True, "fetched_at": cached["fetched_at"].isoformat()}
+    cached = await db.notices_cache.find_one({'_id': 'official'})
+    if cached and cached.get('fetched_at') and cached['fetched_at'] < now - timedelta(days=7):
+        cached = None
+    if cached and cached['refresh_after'] > now:
+        return {'ok': bool(cached.get('items')), 'items': cached.get('items', []), 'fetched_at': cached.get('fetched_at'), 'stale': cached.get('stale', False), 'message': cached.get('message')}
+    from pymongo.errors import DuplicateKeyError
+    acquired = False
+    owner = secrets.token_hex(16)
     try:
-        items = _scrape_notices()
-        await db.notices_cache.update_one(
-            {"key": "nsut"}, {"$set": {"key": "nsut", "items": items, "fetched_at": now}}, upsert=True
-        )
-        return {"ok": True, "items": items, "cached": False, "fetched_at": now.isoformat()}
-    except Exception as e:
-        logger.exception("notices fetch failed")
-        if cached:
-            return {"ok": True, "items": cached["items"], "cached": True, "stale": True}
-        return {"ok": False, "items": [], "error": str(e)}
-
-
-# ---- News placeholder ----
-@api_router.get("/news")
-async def news():
-    return {
-        "status": "coming_soon",
-        "message": "NSUT trending news is launching soon.",
-    }
-
-
-app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+        lease = await db.sync_leases.update_one({'_id': 'notices', '$or': [{'until': {'$lte': now}}, {'until': {'$exists': False}}]}, {'$set': {'until': now + timedelta(seconds=60), 'owner': owner}}, upsert=True)
+        acquired = bool(lease.modified_count or lease.upserted_id)
+    except DuplicateKeyError: pass
+    if not acquired:
+        return {'ok': bool(cached and cached.get('items')), 'items': (cached or {}).get('items', []), 'fetched_at': (cached or {}).get('fetched_at'), 'stale': True, 'message': 'Notices are refreshing. Try again shortly.'}
+    try:
+        items = await asyncio.wait_for(asyncio.to_thread(scrape_notices), timeout=20)
+        record = {'items': items, 'fetched_at': now, 'stale': False, 'refresh_after': now + timedelta(hours=1), 'expires_at': now + timedelta(days=7)}
+    except Exception as exc:
+        logger.warning('Official notices unavailable (%s)', type(exc).__name__)
+        record = {'items': (cached or {}).get('items', []), 'fetched_at': (cached or {}).get('fetched_at'), 'stale': True, 'refresh_after': now + timedelta(minutes=5), 'expires_at': now + timedelta(days=7), 'message': 'Official notices could not be refreshed. Visit the NSUT website or try later.'}
+    try: await db.notices_cache.replace_one({'_id': 'official'}, {'_id': 'official', **record}, upsert=True)
+    finally: await db.sync_leases.delete_one({'_id': 'notices', 'owner': owner})
+    return {'ok': bool(record['items']), **{k: v for k, v in record.items() if k not in ('refresh_after', 'expires_at')}}

@@ -1,85 +1,41 @@
 import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const KEY_ROLL = "nsut_hub_roll";
-const KEY_PASSWORD = "nsut_hub_pw";
-const KEY_PROFILE = "nsut_hub_profile";
-const KEY_ATTENDANCE = "nsut_hub_attendance";
-const KEY_SESSION_COOKIE = "nsut_hub_session_cookie";
-const KEY_RESULTS = "nsut_hub_results";
-const KEY_BUNK_PLAN = "nsut_hub_bunk_plan";
-
-type Store = {
-  getItemAsync: (k: string) => Promise<string | null>;
-  setItemAsync: (k: string, v: string) => Promise<void>;
-  deleteItemAsync: (k: string) => Promise<void>;
-};
-
-const nativeStore: Store = {
-  getItemAsync: (k) => SecureStore.getItemAsync(k),
-  setItemAsync: (k, v) => SecureStore.setItemAsync(k, v),
-  deleteItemAsync: (k) => SecureStore.deleteItemAsync(k),
-};
-
-const webStore: Store = {
-  getItemAsync: async (k) => (await AsyncStorage.getItem(k)) ?? null,
-  setItemAsync: async (k, v) => AsyncStorage.setItem(k, v),
-  deleteItemAsync: async (k) => AsyncStorage.removeItem(k),
-};
-
-const store: Store = Platform.OS === "web" ? webStore : nativeStore;
-
+import { Platform } from "react-native";
+import { AcademicData, EMPTY_DATA, normalizeBackup, overall } from "./domain/academic";
+const KEY = "nsut_academic_v2";
+const PREF = "nsut_target_v2";
+const LEGACY = ["nsut_hub_pw", "nsut_hub_session_cookie", "nsut_hub_roll", "nsut_hub_profile", "nsut_hub_attendance", "nsut_hub_rooms", "nsut_hub_bunk_plan"];
+const get = (k: string) => Platform.OS === "web" ? AsyncStorage.getItem(k) : SecureStore.getItemAsync(k);
+const set = (k: string, v: string) => Platform.OS === "web" ? AsyncStorage.setItem(k, v) : SecureStore.setItemAsync(k, v);
+const del = (k: string) => Platform.OS === "web" ? AsyncStorage.removeItem(k) : SecureStore.deleteItemAsync(k);
 export const storage = {
-  async getRollAndPassword() {
-    const [roll, pw] = await Promise.all([
-      store.getItemAsync(KEY_ROLL),
-      store.getItemAsync(KEY_PASSWORD),
-    ]);
-    return { roll, password: pw };
+  async initialize() {
+    // Remove passwords and unvalidated data from older app versions, including web caches.
+    const oldRoll = await get("nsut_hub_roll");
+    if (oldRoll && /^[A-Za-z0-9_-]{1,80}$/.test(oldRoll)) await del(`nsut_hub_results_${oldRoll}`);
+    await Promise.all(LEGACY.map(del));
+    const keys = await AsyncStorage.getAllKeys();
+    await AsyncStorage.multiRemove(keys.filter(k => k.startsWith("nsut_hub_")));
   },
-  async setRollAndPassword(roll: string, password: string) {
-    await Promise.all([
-      store.setItemAsync(KEY_ROLL, roll),
-      store.setItemAsync(KEY_PASSWORD, password),
-    ]);
+  async read(): Promise<AcademicData> {
+    const raw = await get(KEY);
+    if (!raw) return { ...EMPTY_DATA, history: [] };
+    const parsed = JSON.parse(raw);
+    const validated = normalizeBackup(parsed);
+    // Sources are retained only for data already stored by this app, never an imported backup.
+    if (validated.attendance && parsed.attendance?.source === "ims-page") validated.attendance.source = "ims-page";
+    if (validated.timetable && parsed.timetable?.source === "ims-page") validated.timetable.source = "ims-page";
+    return validated;
   },
-  async clear() {
-    await Promise.all([
-      store.deleteItemAsync(KEY_ROLL),
-      store.deleteItemAsync(KEY_PASSWORD),
-      store.deleteItemAsync(KEY_PROFILE),
-      store.deleteItemAsync(KEY_ATTENDANCE),
-      store.deleteItemAsync(KEY_SESSION_COOKIE),
-      store.deleteItemAsync(KEY_BUNK_PLAN),
-    ]);
+  async save(data: AcademicData) {
+    const validated = normalizeBackup(data);
+    const pct = validated.attendance ? overall(validated.attendance.data) : null;
+    if (pct !== null && validated.attendance && !validated.history.some(h => h.at === validated.attendance!.capturedAt)) validated.history = [...validated.history, { at: validated.attendance.capturedAt, percent: pct }].slice(-30);
+    if (validated.attendance) validated.attendance.source = data.attendance?.source === "ims-page" ? "ims-page" : "personal-backup";
+    if (validated.timetable) validated.timetable.source = data.timetable?.source === "ims-page" ? "ims-page" : "personal-backup";
+    await set(KEY, JSON.stringify(validated));
   },
-  async getProfile(): Promise<any | null> {
-    const s = await store.getItemAsync(KEY_PROFILE);
-    return s ? JSON.parse(s) : null;
-  },
-  async setProfile(p: any) {
-    await store.setItemAsync(KEY_PROFILE, JSON.stringify(p));
-  },
-  async getAttendance(): Promise<any | null> {
-    const s = await store.getItemAsync(KEY_ATTENDANCE);
-    return s ? JSON.parse(s) : null;
-  },
-  async setAttendance(a: any) {
-    await store.setItemAsync(KEY_ATTENDANCE, JSON.stringify(a));
-  },
-  async getResults(roll: string): Promise<any | null> {
-    const s = await store.getItemAsync(`${KEY_RESULTS}_${roll}`);
-    return s ? JSON.parse(s) : null;
-  },
-  async setResults(roll: string, r: any) {
-    await store.setItemAsync(`${KEY_RESULTS}_${roll}`, JSON.stringify(r));
-  },
-  async getBunkPlan(): Promise<Record<string, number> | null> {
-    const s = await store.getItemAsync(KEY_BUNK_PLAN);
-    return s ? JSON.parse(s) : null;
-  },
-  async setBunkPlan(p: Record<string, number>) {
-    await store.setItemAsync(KEY_BUNK_PLAN, JSON.stringify(p));
-  },
+  async target(): Promise<number> { const n = Number(await get(PREF)); return n >= 1 && n <= 100 ? n : 75; },
+  async setTarget(n: number) { if (!Number.isInteger(n) || n < 1 || n > 100) throw new Error("Choose a target from 1 to 100."); await set(PREF, String(n)); },
+  async clear() { await Promise.all([del(KEY), del(PREF), ...LEGACY.map(del)]); await AsyncStorage.multiRemove((await AsyncStorage.getAllKeys()).filter(k => k.startsWith("nsut_hub_"))); },
 };

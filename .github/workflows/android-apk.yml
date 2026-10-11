@@ -1,0 +1,128 @@
+name: Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - coderabbit/build-downloadable-android-apk/53d98947
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Finish each release in order; do not cancel a signing/publication midway.
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_BACKEND_URL: ${{ vars.EXPO_PUBLIC_BACKEND_URL }}
+    outputs:
+      version_code: ${{ steps.version.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check release configuration
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          RELEASE_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$EXPO_PUBLIC_BACKEND_URL" || { echo 'Set the EXPO_PUBLIC_BACKEND_URL repository variable to your deployed HTTPS API origin.'; exit 1; }
+          test -n "$RELEASE_KEYSTORE" && test -n "$RELEASE_ALIAS" && test -n "$RELEASE_PASSWORD" || { echo 'Configure the three ANDROID signing secrets described in docs/APK-UPDATES.md.'; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install declared package manager
+        run: npm install --global yarn@1.22.22
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile --non-interactive
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          yarn tsc --noEmit
+          yarn lint
+          node tests/academic.cjs
+      - uses: android-actions/setup-android@v3
+      - name: Install required Android packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Set increasing Android version
+        id: version
+        run: |
+          node frontend/scripts/ci-version.cjs
+      - name: Build signed APK
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          APK_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          umask 077
+          signing_dir="$RUNNER_TEMP/nsut-signing"
+          mkdir -p "$signing_dir"
+          trap 'rm -rf "$signing_dir"' EXIT
+          printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > "$signing_dir/release.jks"
+          printf '%s' "$RELEASE_PASSWORD" > "$signing_dir/password"
+          export APK_KEYSTORE="$signing_dir/release.jks"
+          export APK_PASSWORD_FILE="$signing_dir/password"
+          # ARMv7 and ARM64 cover Android phones; x86 emulator binaries are excluded.
+          export APK_ARCHITECTURES=armeabi-v7a,arm64-v8a
+          export APK_OUTPUT="$GITHUB_WORKSPACE/frontend/dist/nsut-discover-spark.apk"
+          bash frontend/scripts/build-apk.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nsut-discover-spark-${{ steps.version.outputs.code }}
+          path: |
+            frontend/dist/nsut-discover-spark.apk
+            frontend/dist/nsut-discover-spark.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nsut-discover-spark-${{ needs.build.outputs.version_code }}
+          path: release
+      - name: Publish public download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_CODE: ${{ needs.build.outputs.version_code }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          tag="android-$RELEASE_CODE"
+          latest_flag=true
+          latest_tag="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          if [[ "$latest_tag" =~ ^android-([0-9]+)$ ]] && (( BASH_REMATCH[1] >= RELEASE_CODE )); then
+            latest_flag=false
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Signed NSUT Discover Spark Android update. Download the APK below and open it on your phone to install/update.
+
+          Updates preserve local data when installed over an app signed with the same key. Android 7.0 or later; ARMv7/ARM64.
+          IMS page capture still requires verification against the current portal. Results are Coming Soon.
+          NOTES
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" release/*.apk release/*.sha256 --clobber
+          else
+            gh release create "$tag" release/*.apk release/*.sha256 \
+              --target "$RELEASE_COMMIT" --title "Android build $RELEASE_CODE" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --latest="$latest_flag"
+          fi

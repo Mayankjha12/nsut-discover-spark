@@ -17,8 +17,8 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("[ErrorBoundary] render crash:", error, info.componentStack ?? "");
+  componentDidCatch(_error: Error, _info: ErrorInfo): void {
+    console.error("[ErrorBoundary] A render failure occurred.");
   }
 
   resetError = (): void => {

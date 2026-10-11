@@ -1,313 +1,76 @@
-// Injected inside the IMS NSUT webview after login to scrape attendance data.
-// Looks for the standard attendance table (tabular rows with subject/code/attendance).
-// Posts result to React Native via window.ReactNativeWebView.postMessage.
-
-export const ATTENDANCE_SCRAPE_JS = `
-(function () {
+import { isIMSUrl } from "./domain/portal";
+export { isIMSUrl };
+/** Read only the page the student explicitly opened. No form submission, hidden requests, or credential access. */
+export function capturePage(kind: "attendance" | "timetable", requestId: string) {
+  return `(${READ_PAGE_JS})(${JSON.stringify(kind)}, ${JSON.stringify(requestId)}); true;`;
+}
+const READ_PAGE_JS = String.raw`function readVisiblePage(kind, requestId) {
+  const send = (payload) => {
+    const bridge = window.ReactNativeWebView;
+    bridge && bridge.postMessage(JSON.stringify({ requestId, ...payload }));
+  };
   try {
-    function send(payload) {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
-      }
+    if (location.protocol !== "https:" || !["www.imsnsit.org", "imsnsit.org"].includes(location.hostname)) return;
+    const docs = [document];
+    for (const frame of Array.from(document.querySelectorAll("frame,iframe"))) {
+      try { const d = frame.contentDocument; if (d && d.location.origin === location.origin) docs.push(d); } catch { /* Cross-origin frames are not read. */ }
     }
-
-    function textOf(el) {
-      return (el && el.textContent ? el.textContent : "").replace(/\\s+/g, " ").trim();
+    if (!docs.some(d => Array.from(d.querySelectorAll("a")).some(a => /log\s*out|sign\s*out/i.test(a.textContent || "")))) {
+      send({ error: "Sign in on the IMS page first. Complete its CAPTCHA and open your report." }); return;
     }
-
-    var tables = document.querySelectorAll("table");
-    var subjects = [];
-    var overall = null;
-
-    tables.forEach(function (t) {
-      var rows = t.querySelectorAll("tr");
-      if (rows.length < 2) return;
-      var headerText = textOf(rows[0]).toLowerCase();
-      var looksLikeAttendance = (
-        headerText.indexOf("subject") >= 0 || headerText.indexOf("course") >= 0
-      ) && (
-        headerText.indexOf("attend") >= 0 || headerText.indexOf("%") >= 0
-      );
-      if (!looksLikeAttendance) return;
-      for (var i = 1; i < rows.length; i++) {
-        var cells = rows[i].querySelectorAll("td");
-        if (!cells || cells.length < 2) continue;
-        var cellTexts = [];
-        for (var c = 0; c < cells.length; c++) cellTexts.push(textOf(cells[c]));
-        // Try to extract: subject name, code, percent
-        var pct = null;
-        for (var c = cellTexts.length - 1; c >= 0; c--) {
-          var m = cellTexts[c].match(/([0-9]{1,3}(?:\\.[0-9]+)?)\\s*%?/);
-          if (m) {
-            var v = parseFloat(m[1]);
-            if (v >= 0 && v <= 100) { pct = v; break; }
+    const clean = (e) => (e.textContent || "").replace(/\s+/g, " ").trim();
+    const numeric = (s) => s && /^\d+(\.\d+)?%?$/.test(s.trim()) ? Number(s.trim().replace("%", "")) : null;
+    const rolls = new Set();
+    for (const d of docs) {
+      const content = d.body ? d.body.textContent || "" : "";
+      for (const match of content.matchAll(/\broll\s*(?:no\.?|number)\s*:?\s*([0-9]{4}[A-Za-z]{2,6}[0-9]{3,6})\b/gi)) rolls.add(match[1].toUpperCase());
+    }
+    if (rolls.size > 1) { send({ error: "Conflicting student identifiers. Close this session and retry." }); return; }
+    const roll = rolls.size === 1 ? Array.from(rolls)[0] : undefined;
+    let found = null;
+    // Public IMS app documents a transposed report with these exact summary labels.
+    // Require all summary rows and matching widths; never infer counts from blank cells.
+    if (kind === "attendance") for (const d of docs) for (const table of Array.from(d.querySelectorAll("#myreport table.plum_fieldbig"))) {
+      const headers = Array.from(table.querySelectorAll("tr.plum_head"));
+      if (headers.length < 3) continue;
+      const codes = Array.from(headers[2].cells).map(clean).slice(1);
+      const summary = Array.from(table.rows).map(row => Array.from(row.cells).map(clean));
+      const select = (label) => summary.filter(row => row[0] === label);
+      const a = select("Overall Present"), t = select("Overall Class"), p = select("Overall (%)");
+      if (a.length !== 1 || t.length !== 1 || p.length !== 1 || !codes.length) continue;
+      if ([a[0], t[0], p[0]].some(row => row.length !== codes.length + 1)) { send({ error: "Incomplete attendance summary." }); return; }
+      if (found) { send({ error: "Multiple reports found." }); return; }
+      found = codes.map((code, i) => ({ code, name: code, present: numeric(a[0][i+1]), total: numeric(t[0][i+1]), percent: numeric(p[0][i+1]) }));
+    }
+    for (const d of docs) for (const table of Array.from(d.querySelectorAll("table"))) {
+      const rows = Array.from(table.rows);
+      for (let index = 0; index < Math.min(rows.length, 8); index++) {
+        const h = Array.from(rows[index].cells).map(e => clean(e).toLowerCase());
+        const col = (r) => h.findIndex(v => r.test(v));
+        const code = col(/^(subject|course)\s*code$/), name = col(/^(subject|course)(\s*name)?$/);
+        const present = col(/^(present|attended|classes attended|total present)$/), total = col(/^(total|classes held|total classes|delivered)$/), percent = col(/^(percentage|percent|attendance\s*%|%)$/);
+        const day = col(/^day$/), start = col(/^(start|start time|from)$/), end = col(/^(end|end time|to)$/), room = col(/^(room|classroom|room no\.?)$/), faculty = col(/^(faculty|teacher)$/);
+        const match = kind === "attendance" ? code >= 0 && (percent >= 0 || (present >= 0 && total >= 0)) : day >= 0 && name >= 0 && start >= 0 && end >= 0;
+        if (!match) continue;
+        const parsed = [];
+        for (const row of rows.slice(index + 1)) {
+          const c = Array.from(row.cells).map(clean);
+          if (!c.some(Boolean)) continue;
+          if (c.length !== h.length) { send({ error: "Incomplete report row. Previous data was kept." }); return; }
+          if (kind === "attendance") {
+            if (/^(total|overall)$/i.test(c[code])) continue;
+            if (!c[code]) { send({ error: "Missing subject identifier." }); return; }
+            parsed.push({ code: c[code], name: name >= 0 ? c[name] : c[code], present: numeric(c[present]), total: numeric(c[total]), percent: numeric(c[percent]) });
+          } else {
+            const dayIndex = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].indexOf(c[day].slice(0, 3).toLowerCase());
+            parsed.push({ day: dayIndex, start: c[start], end: c[end], subject: c[name], room: c[room] || undefined, faculty: c[faculty] || undefined });
           }
         }
-        if (pct == null) continue;
-        var name = cellTexts[0] || "";
-        var code = cellTexts.length > 1 ? cellTexts[1] : "";
-        subjects.push({ name: name, code: code, percent: pct, cells: cellTexts });
-      }
-    });
-
-    // Overall from "overall" / "cumulative"
-    var all = document.body ? document.body.innerText : "";
-    var mo = all.match(/(?:overall|cumulative|total)[^0-9]{0,20}([0-9]{1,3}(?:\\.[0-9]+)?)/i);
-    if (mo) overall = parseFloat(mo[1]);
-    if (overall == null && subjects.length) {
-      var sum = 0; subjects.forEach(function (s) { sum += s.percent; });
-      overall = Math.round((sum / subjects.length) * 10) / 10;
-    }
-
-    send({
-      type: "ATTENDANCE_RESULT",
-      url: location.href,
-      subjects: subjects,
-      overall_percent: overall,
-      scraped_at: new Date().toISOString(),
-    });
-  } catch (e) {
-    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "ERROR", message: String(e) }));
-    }
-  }
-  true;
-})();
-`;
-
-export const PROFILE_SCRAPE_JS = `
-(function () {
-  try {
-    function send(payload) {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+        if (parsed.length) { if (found) { send({ error: "Several matching tables found. Open a single report before syncing." }); return; } found = parsed; }
       }
     }
-    var text = document.body ? document.body.innerText : "";
-    function pick(re) {
-      var m = text.match(re);
-      return m ? m[1].trim() : "";
-    }
-    var roll = pick(/Roll\\s*(?:No\\.?|Number)?[\\s:]*([A-Z0-9\\/]+)/i);
-    var name = pick(/Name[\\s:]*([A-Z][A-Za-z \\.]+)/);
-    var branch = pick(/Branch[\\s:]*([A-Za-z &\\.]+)/);
-    var year = pick(/Year[\\s:]*([A-Za-z0-9]+)/);
-    var section = pick(/Section[\\s:]*([A-Za-z0-9]+)/);
-    send({
-      type: "PROFILE_RESULT",
-      roll_number: roll,
-      name: name,
-      branch: branch,
-      year: year,
-      section: section,
-    });
-  } catch (e) {
-    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "ERROR", message: String(e) }));
-    }
-  }
-  true;
-})();
-`;
-
-// Try to detect a successful login (after redirect to inner frameset)
-export const DETECT_LOGIN_JS = `
-(function () {
-  try {
-    var url = location.href;
-    var isInner = url.indexOf("student_login.php") < 0 && url.indexOf("imsnsit.org") >= 0;
-    var body = (document.body ? document.body.innerText : "").toLowerCase();
-    var hasLogout = body.indexOf("logout") >= 0;
-    var hasActivities = body.indexOf("my activities") >= 0 || body.indexOf("my profile") >= 0;
-    var err = "";
-    if (body.indexOf("invalid security number") >= 0) err = "Wrong captcha — try again.";
-    else if (body.indexOf("invalid password") >= 0 || body.indexOf("does not match") >= 0) err = "Wrong roll number or password.";
-    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: "URL_CHANGED",
-        url: url,
-        isInner: isInner,
-        hasLogout: hasLogout,
-        hasActivities: hasActivities,
-        loginError: err,
-      }));
-    }
-  } catch (e) {}
-  true;
-})();
-`;
-
-// Full sync pipeline — runs INSIDE the logged-in IMS WebView so every fetch
-// carries the session cookies. Mirrors the flow of the imsnsit_app reference:
-// My Activities -> (Current Sem Courses Registered) -> My Attendance form -> POST -> table.
-export const FULL_SYNC_JS = `
-(function () {
-  var post = function (p) { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(p)); };
-  var progress = function (m) { post({ type: "SYNC_PROGRESS", message: m }); };
-  var txt = function (el) { return (el && el.textContent ? el.textContent : "").replace(/\\s+/g, " ").trim(); };
-  var parseHTML = function (html) { return new DOMParser().parseFromString(html, "text/html"); };
-  var abs = function (href) { try { return new URL(href, location.href).href; } catch (e) { return href; } };
-  function allDocs() {
-    var docs = [document];
-    var fr = document.querySelectorAll("frame,iframe");
-    for (var i = 0; i < fr.length; i++) { try { if (fr[i].contentDocument) docs.push(fr[i].contentDocument); } catch (e) {} }
-    return docs;
-  }
-  function findLink(re) {
-    var docs = allDocs();
-    for (var d = 0; d < docs.length; d++) {
-      var as = docs[d].querySelectorAll("a");
-      for (var i = 0; i < as.length; i++) {
-        var h = as[i].getAttribute("href");
-        if (h && h !== "#" && re.test(txt(as[i]))) return abs(h);
-      }
-    }
-    return null;
-  }
-  function fy() {
-    var d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
-    var pad = function (n) { return ("0" + (n % 100)).slice(-2); };
-    return m <= 5 ? (y - 1) + "-" + pad(y) : y + "-" + pad(y + 1);
-  }
-  function get(url) { return fetch(url, { credentials: "include" }).then(function (r) { return r.text(); }); }
-  function postForm(url, data) {
-    var body = Object.keys(data).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(data[k]); }).join("&");
-    return fetch(url, { method: "POST", credentials: "include", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body })
-      .then(function (r) { return r.text(); });
-  }
-  function num(v) { var n = parseFloat(String(v || "").replace(/[^0-9.]/g, "")); return isNaN(n) ? null : n; }
-
-  async function run() {
-    var profileUrl = findLink(/^\\s*my profile\\s*$/i);
-    var actUrl = findLink(/^\\s*my activities\\s*$/i);
-    if (!actUrl) { post({ type: "SYNC_ERROR", message: "Login not detected yet." }); return; }
-
-    progress("Reading your profile…");
-    if (profileUrl) {
-      try {
-        var pd = parseHTML(await get(profileUrl));
-        var kv = {};
-        var rows = pd.querySelectorAll("tr");
-        for (var i = 0; i < rows.length; i++) {
-          var cells = rows[i].querySelectorAll("th,td");
-          if (cells.length === 2) kv[txt(cells[0]).toLowerCase()] = txt(cells[1]);
-        }
-        var pick = function (re) { var k = Object.keys(kv).find(function (x) { return re.test(x); }); return k ? kv[k] : ""; };
-        var img = pd.querySelector(".plum_fieldbig img, img[src*='photo'], img[src*='image']");
-        post({
-          type: "PROFILE_RESULT",
-          roll_number: pick(/roll|student\\s*id|enrol/),
-          name: pick(/^(student\\s*)?name/),
-          branch: pick(/branch|department|programme|program|course/),
-          year: pick(/year|semester|sem\\b/),
-          section: pick(/section/),
-          photo: img ? abs(img.getAttribute("src")) : "",
-          raw: kv,
-        });
-      } catch (e) {}
-    }
-
-    progress("Finding attendance page…");
-    var ad = parseHTML(await get(actUrl));
-    var links = {};
-    var anchors = ad.querySelectorAll("a");
-    for (var j = 0; j < anchors.length; j++) {
-      var href = anchors[j].getAttribute("href");
-      if (href && href !== "#") links[txt(anchors[j]).toLowerCase()] = abs(href);
-    }
-    var keys = Object.keys(links);
-    var attKey = keys.find(function (k) { return /attendance/.test(k); });
-    var coursesKey = keys.find(function (k) { return /course.*regist/.test(k); });
-
-    var courses = {}, sem = null;
-    if (coursesKey) {
-      try {
-        var cd = parseHTML(await get(links[coursesKey]));
-        var head = txt(cd.querySelector("#div2") || cd.body);
-        var m = head.match(/Semester\\s*(\\d+)/i);
-        if (m) sem = m[1];
-        var crows = cd.querySelectorAll("table tr");
-        for (var r = 0; r < crows.length; r++) {
-          var c = [].map.call(crows[r].querySelectorAll("td"), txt);
-          if (c.length >= 7 && /^[A-Z]{2,}[A-Z0-9]*\\d/.test(c[1])) courses[c[1]] = { name: c[2], credits: c[6] };
-        }
-      } catch (e) {}
-    }
-    if (!attKey) { post({ type: "SYNC_ERROR", message: "Attendance link not found in My Activities.", links: keys }); return; }
-
-    progress("Fetching attendance report…");
-    var fd = parseHTML(await get(links[attKey]));
-    var val = function (sel) { var e = fd.querySelector(sel); return e ? (e.value || e.getAttribute("value") || "") : ""; };
-    if (!sem) { var so = fd.querySelector("[name=sem]"); if (so) { sem = so.value || ""; if (!sem && so.options && so.options.length) sem = so.options[so.options.length - 1].value; } }
-    var form = {
-      year: fy(), enc_year: val("#enc_year"), sem: sem || "", enc_sem: val("#enc_sem"), submit: "Submit",
-      recentitycode: val("[name=recentitycode]"), dept: val("[name=dept]"), degree: val("[name=degree]"), ename: "", ecode: ""
-    };
-    var rd = parseHTML(await postForm(links[attKey], form));
-    var heads = [].slice.call(rd.querySelectorAll("#myreport table.plum_fieldbig tr.plum_head"));
-    if (heads.length < 3) heads = [].slice.call(rd.querySelectorAll("tr.plum_head"));
-    if (heads.length < 3) { post({ type: "SYNC_ERROR", message: "Attendance table not found.", preview: txt(rd.body).slice(0, 300) }); return; }
-
-    var codes = [].map.call(heads[2].querySelectorAll("td,th"), txt).slice(1);
-    var stats = {};
-    heads.slice(-4).forEach(function (row) {
-      var c = [].map.call(row.querySelectorAll("td,th"), txt);
-      stats[(c[0] || "").toLowerCase()] = c.slice(1);
-    });
-    var sk = Object.keys(stats);
-    var keyFor = function (re) { return sk.find(function (k) { return re.test(k); }); };
-    var kP = keyFor(/present/), kA = keyFor(/absent/), kT = keyFor(/class|total|held|deliver/), kPct = keyFor(/%|percent/);
-    var subjects = codes.map(function (code, i) {
-      var present = num((stats[kP] || [])[i]);
-      var absent = num((stats[kA] || [])[i]);
-      var total = num((stats[kT] || [])[i]);
-      if (total == null && present != null && absent != null) total = present + absent;
-      var pct = num((stats[kPct] || [])[i]);
-      if (pct == null && total) pct = Math.round((present / total) * 1000) / 10;
-      return { code: code, name: (courses[code] && courses[code].name) || code, credits: courses[code] ? courses[code].credits : null,
-               present: present, total: total, percent: pct == null ? 0 : pct };
-    }).filter(function (s) { return s.code; });
-    var tp = 0, tt = 0;
-    subjects.forEach(function (s) { if (s.present != null && s.total) { tp += s.present; tt += s.total; } });
-    var overall = tt ? Math.round((tp / tt) * 1000) / 10 : (subjects.length ? Math.round(subjects.reduce(function (a, s) { return a + s.percent; }, 0) / subjects.length * 10) / 10 : null);
-    post({ type: "ATTENDANCE_RESULT", subjects: subjects, overall_percent: overall, semester: sem, total_present: tp, total_classes: tt,
-           scraped_at: new Date().toISOString(), stat_keys: sk });
-
-    // ---- Room timetables (best-effort, non-fatal) ----
-    try {
-      progress("Reading room timetables…");
-      var roomKey = keys.find(function (k) { return /room/.test(k) && /time|table|schedule/.test(k); }) ||
-                    keys.find(function (k) { return /time\\s*table/.test(k); });
-      var roomUrl = roomKey ? links[roomKey] : "https://www.imsnsit.org/imsnsit/plum_url.php?Xa9HvscdKyH6kL9nKIyCD80Af4YmbpJSlN4qzyQsnhEW752gaaBRKjC5B+5SgxUWzRm0BuyJ0EuNJ8BxklMF6Vjet5gq8CLaWdFN9qBzeu0pGzfeTxg0MznYdBq2W4O3sKNiJJKtD7BpHz30vozHgOKP0ezxpMWh2PtNzR3g6yU";
-      var rf = parseHTML(await get(roomUrl));
-      var encSemcmb = (rf.querySelector("[name=enc_semcmb]") || {}).value || "P0RYCVYHDvjv4ZWnV+lsiPiOE6wbkYUVXnt1gj7ut/9uyy0d8ZkKWDvCKeeG1r0F";
-      var roomSel = rf.querySelector("select[name=room], select[name=roomcode]");
-      var roomNames = roomSel ? [].map.call(roomSel.options, function (o) { return o.value; }).filter(function (v) { return v && !/select/i.test(v); }) : [];
-      if (!roomNames.length) roomNames = ["APJ-01","APJ-02","APJ-03","APJ-04","APJ-05","APJ-06","APJ-07","APJ-08","APJ-09","APJ-10","APJ-11"];
-      roomNames = roomNames.slice(0, 60);
-      var rooms = {};
-      async function one(name) {
-        var doc = parseHTML(await postForm(roomUrl, { roomcode: name, room: name, semcmb: "2-4-6-8", enc_semcmb: encSemcmb, submit: "Go" }));
-        var trs = doc.querySelectorAll("tr");
-        if (trs.length < 7) return;
-        var timeCells = [].slice.call(trs[2].querySelectorAll("td")).slice(3, 11);
-        var times = timeCells.map(function (td) { var b = td.querySelector("b"); var parts = (b ? b.innerHTML : td.innerHTML).split(/<br\\s*\\/?>/i); return txt(parseHTML(parts[parts.length - 1]).body); });
-        var free = {};
-        for (var d = 3; d < Math.min(9, trs.length); d++) {
-          var cells = [].slice.call(trs[d].querySelectorAll("td"));
-          if (cells.length < 11) continue;
-          var day = txt(cells[0]).slice(0, 3);
-          var vals = cells.slice(3, 11).map(txt);
-          free[day] = times.filter(function (t, i) { return !vals[i]; });
-        }
-        rooms[name] = free;
-      }
-      for (var b = 0; b < roomNames.length; b += 6) await Promise.all(roomNames.slice(b, b + 6).map(function (n) { return one(n).catch(function () {}); }));
-      if (Object.keys(rooms).length) post({ type: "ROOMS_RESULT", rooms: rooms, scraped_at: new Date().toISOString() });
-    } catch (e) { post({ type: "ROOMS_ERROR", message: String(e && e.message || e) }); }
-    post({ type: "SYNC_DONE" });
-  }
-  run().catch(function (e) { post({ type: "SYNC_ERROR", message: String(e && e.message || e) }); });
-  true;
-})();
+    if (!found) { send({ error: "This report layout is not supported yet. Previous data was kept. Open the attendance or timetable table in IMS and retry." }); return; }
+    send({ kind, rows: found, roll });
+  } catch { send({ error: "Could not read this IMS page. Your previously saved data was kept." }); }
+}
 `;

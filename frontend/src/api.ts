@@ -1,86 +1,20 @@
-import Constants from "expo-constants";
-
-const API_BASE =
-  (process.env.EXPO_PUBLIC_BACKEND_URL as string | undefined) ||
-  (Constants.expoConfig?.extra as any)?.EXPO_PUBLIC_BACKEND_URL ||
-  "";
-
-async function j<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}/api${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+import { Platform } from "react-native";
+const origin = (process.env.EXPO_PUBLIC_BACKEND_URL ?? '').replace(/\/+$/, '');
+export const backendConfigured = !!origin || Platform.OS === 'web';
+export type RoomInfo = { id: string; building: string; room_type: string; status: 'available' | 'occupied' | 'unknown'; reason: string; minutes_until_change: number | null; next_class: { title: string; start: string; end: string } | null };
+export type RoomsResponse = { as_of: string; timezone: string; source: string | null; source_url: string | null; observed_at: string | null; stale: boolean; rooms: RoomInfo[]; message: string | null };
+export type NoticeItem = { title: string; url: string; source: string };
+export type NoticesResponse = { ok: boolean; items: NoticeItem[]; fetched_at?: string | null; stale?: boolean; message?: string };
+async function get<T>(path: string): Promise<T> {
+  if (!origin && Platform.OS !== 'web') throw new Error('Campus services are not connected in this build. Your saved academic data still works.');
+  const control = new AbortController(), timer = setTimeout(() => control.abort(), 12_000);
+  try {
+    const response = await fetch(`${origin}/api${path}`, { signal: control.signal, credentials: 'omit' });
+    if (!response.ok) throw new Error('Campus service is temporarily unavailable. Please try again.');
+    return await response.json() as T;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Campus service')) throw error;
+    throw new Error('Could not reach campus services. Check your connection or try again later.');
+  } finally { clearTimeout(timer); }
 }
-
-export const api = {
-  base: API_BASE,
-  health: () => j("/health"),
-  vacantRooms: (slot?: number) =>
-    j<VacantRoomsResponse>(`/vacant-rooms${slot != null ? `?slot=${slot}` : ""}`),
-  saveProfile: (p: any) =>
-    j("/profile", { method: "POST", body: JSON.stringify(p) }),
-  getProfile: (roll: string) => j(`/profile/${roll}`),
-  saveAttendance: (p: any) =>
-    j("/attendance", { method: "POST", body: JSON.stringify(p) }),
-  getAttendance: (roll: string) => j(`/attendance/${roll}`),
-  results: (roll: string) => j<ResultsResponse>(`/results/${roll}`),
-  notices: () => j<NoticesResponse>("/notices"),
-  saveRoomTimetable: (p: any) => j("/room-timetable", { method: "POST", body: JSON.stringify(p) }),
-  news: () => j("/news"),
-};
-
-export type NoticeItem = { title: string; url: string; is_new: boolean; source: string };
-export type NoticesResponse = { ok: boolean; items: NoticeItem[]; cached?: boolean; stale?: boolean; error?: string };
-
-export type ResultSubject = { subject_code: string; grade: string; credits: number | null };
-export type ResultSemester = {
-  semester: string;
-  sgpa: number | null;
-  credits_registered: string;
-  credits_secured: string;
-  subjects: ResultSubject[];
-};
-
-export type VacantRoomsResponse = {
-  weekday: number;
-  weekday_name: string;
-  current_slot: number | null;
-  chosen_slot: number | null;
-  ist_time: string;
-  slots: {
-    index: number;
-    start: string;
-    end: string;
-    vacant_count: number;
-    total: number;
-    rooms: string[];
-    is_current: boolean;
-  }[];
-};
-
-export type ResultsResponse = {
-  ok: boolean;
-  roll_number?: string;
-  url?: string;
-  name?: string | null;
-  branch_code?: string | null;
-  year_of_study?: string | null;
-  cgpa?: number | null;
-  rank?: number | null;
-  branch_rank?: number | null;
-  percentile?: number | null;
-  credits_completed?: number | null;
-  semester_sgpas?: number[];
-  semesters?: ResultSemester[];
-  grade_distribution?: Record<string, number>;
-  total_subjects?: number | null;
-  cached?: boolean;
-  stale?: boolean;
-  fetched_at?: string;
-  error?: string;
-};
+export const api = { rooms: () => get<RoomsResponse>('/rooms'), notices: () => get<NoticesResponse>('/notices') };
