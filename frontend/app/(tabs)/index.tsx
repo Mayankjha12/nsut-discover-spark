@@ -12,7 +12,7 @@ export default function Home() {
     {error ? <Message>{error}</Message> : null}{loading ? <Loading/> : null}
     <View style={ui.grid}>
       <Card style={{ flex: 2, minWidth: width > 700 ? 320 : 220 }}>
-        <Text style={ui.eyebrow}>{next ? 'NEXT CLASS' : 'TODAY’S CLASSES'}</Text>
+        <Text style={ui.eyebrow}>{next ? classStatus(next, now) === 'Scheduled now' ? 'CURRENT CLASS' : 'NEXT CLASS' : 'TODAY’S CLASSES'}</Text>
         <Text style={ui.h2}>{next ? next.subject : data.timetable ? 'No more classes today' : 'No timetable saved'}</Text>
         <Text style={ui.muted}>{next ? `${next.start}–${next.end} IST · ${next.room ? 'Room ' + next.room : 'Room not provided'}` : data.timetable ? 'Check IMS for any changes to your schedule.' : 'Save your timetable from IMS to see today’s classes.'}</Text>
         {next ? <Badge tone="info">{classStatus(next, now)} · {remaining.length} remaining</Badge> : null}
