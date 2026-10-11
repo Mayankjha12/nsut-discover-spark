@@ -10,6 +10,7 @@ function load(file, imports = {}) {
   return exports;
 }
 const d = load('src/domain/academic.ts');
+const session = load('src/domain/session.ts');
 const portal = load('src/domain/portal.ts');
 const { capturePage } = load('src/ims-scraper.ts', { './domain/portal': portal });
 let checks = 0;
@@ -122,8 +123,12 @@ test('timetable parser and unsupported report fail safely', () => {
 (async () => {
   const values = new Map([['nsut_hub_pw','synthetic-legacy-secret'],['nsut_hub_roll','2023UCS1234'],['nsut_hub_results_2023UCS1234','legacy']]);
   const mock = { getItem: async k => values.get(k) ?? null, setItem: async (k,v) => { values.set(k,v); }, removeItem: async k => { values.delete(k); }, getAllKeys: async () => [...values.keys()], multiRemove: async keys => keys.forEach(k => values.delete(k)) };
-  const { storage } = load('src/storage.ts', { 'expo-secure-store': {}, '@react-native-async-storage/async-storage': mock, 'react-native': { Platform: { OS: 'web' } }, './domain/academic': d });
+  const { storage } = load('src/storage.ts', { 'expo-secure-store': {}, '@react-native-async-storage/async-storage': mock, 'react-native': { Platform: { OS: 'web' } }, './domain/academic': d, './domain/session': session });
   await storage.initialize(); assert.equal(values.size,0);
+  const now = Date.now(), localSession = { roll: '2023UCS1234', verifiedAt: now, expiresAt: now + session.SESSION_MS };
+  await storage.saveSession(localSession); assert.equal((await storage.session()).roll, localSession.roll);
+  await assert.rejects(storage.saveSession({...localSession, expiresAt: now}));
+  await storage.clearSession(); assert.equal(await storage.session(), null);
   assert.equal((await storage.read()).attendance,undefined);
   const data=d.normalizeBackup({version:1,attendance:{data:[{code:'A',present:3,total:4}],capturedAt:new Date().toISOString(),source:'ims-page'}});
   await storage.save(data);

@@ -4,17 +4,21 @@ export { isIMSUrl };
 export function capturePage(kind: "attendance" | "timetable", requestId: string) {
   return `(${READ_PAGE_JS})(${JSON.stringify(kind)}, ${JSON.stringify(requestId)}); true;`;
 }
-const READ_PAGE_JS = String.raw`function readVisiblePage(kind, requestId) {
+export const READ_PAGE_JS = String.raw`function readVisiblePage(kind, requestId, extraDocs = []) {
   const send = (payload) => {
     const bridge = window.ReactNativeWebView;
     bridge && bridge.postMessage(JSON.stringify({ requestId, ...payload }));
   };
   try {
     if (location.protocol !== "https:" || !["www.imsnsit.org", "imsnsit.org"].includes(location.hostname)) return;
-    const docs = [document];
-    for (const frame of Array.from(document.querySelectorAll("frame,iframe"))) {
-      try { const d = frame.contentDocument; if (d && d.location.origin === location.origin) docs.push(d); } catch { /* Cross-origin frames are not read. */ }
-    }
+    const docs = [document, ...extraDocs];
+    const visit = (doc, depth) => {
+      if (depth > 6) return;
+      for (const frame of Array.from(doc.querySelectorAll("frame,iframe"))) {
+        try { const d = frame.contentDocument; if (d && (d.location.origin === location.origin || ["about:blank", "about:srcdoc"].includes(d.URL)) && !docs.includes(d)) { docs.push(d); visit(d, depth + 1); } } catch {}
+      }
+    };
+    visit(document, 0);
     if (!docs.some(d => Array.from(d.querySelectorAll("a")).some(a => /log\s*out|sign\s*out/i.test(a.textContent || "")))) {
       send({ error: "Sign in on the IMS page first. Complete its CAPTCHA and open your report." }); return;
     }
@@ -22,7 +26,7 @@ const READ_PAGE_JS = String.raw`function readVisiblePage(kind, requestId) {
     const numeric = (s) => s && /^\d+(\.\d+)?%?$/.test(s.trim()) ? Number(s.trim().replace("%", "")) : null;
     const rolls = new Set();
     for (const d of docs) {
-      const content = d.body ? d.body.textContent || "" : "";
+      const content = ((d.body?.innerText || d.body?.textContent || "") + " " + Array.from(d.querySelectorAll("tr")).map(r => Array.from(r.cells).map(clean).join(" ")).join(" ")).replace(/\s+/g, " ");
       for (const match of content.matchAll(/\broll\s*(?:no\.?|number)\s*:?\s*([0-9]{4}[A-Za-z]{2,6}[0-9]{3,6})\b/gi)) rolls.add(match[1].toUpperCase());
     }
     if (rolls.size > 1) { send({ error: "Conflicting student identifiers. Close this session and retry." }); return; }
@@ -39,8 +43,9 @@ const READ_PAGE_JS = String.raw`function readVisiblePage(kind, requestId) {
       const a = select("Overall Present"), t = select("Overall Class"), p = select("Overall (%)");
       if (a.length !== 1 || t.length !== 1 || p.length !== 1 || !codes.length) continue;
       if ([a[0], t[0], p[0]].some(row => row.length !== codes.length + 1)) { send({ error: "Incomplete attendance summary." }); return; }
-      if (found) { send({ error: "Multiple reports found." }); return; }
-      found = codes.map((code, i) => ({ code, name: code, present: numeric(a[0][i+1]), total: numeric(t[0][i+1]), percent: numeric(p[0][i+1]) }));
+      const candidate = codes.map((code, i) => ({ code, name: code, present: numeric(a[0][i+1]), total: numeric(t[0][i+1]), percent: numeric(p[0][i+1]) }));
+      if (found && JSON.stringify(found) !== JSON.stringify(candidate)) { send({ error: "Multiple reports found." }); return; }
+      found = candidate;
     }
     for (const d of docs) for (const table of Array.from(d.querySelectorAll("table"))) {
       const rows = Array.from(table.rows);
@@ -66,7 +71,7 @@ const READ_PAGE_JS = String.raw`function readVisiblePage(kind, requestId) {
             parsed.push({ day: dayIndex, start: c[start], end: c[end], subject: c[name], room: c[room] || undefined, faculty: c[faculty] || undefined });
           }
         }
-        if (parsed.length) { if (found) { send({ error: "Several matching tables found. Open a single report before syncing." }); return; } found = parsed; }
+        if (parsed.length) { if (found) { send({ error: "Several matching tables found. Open a single report to load it." }); return; } found = parsed; }
       }
     }
     if (!found) { send({ error: "This report layout is not supported yet. Previous data was kept. Open the attendance or timetable table in IMS and retry." }); return; }

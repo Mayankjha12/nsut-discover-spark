@@ -17,7 +17,7 @@
         "backgroundColor": "#0F1115"
       },
       "package": "com.emergent.nsuthub.zpg0ni",
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "bundler": "metro",

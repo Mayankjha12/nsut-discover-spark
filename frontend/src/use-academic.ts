@@ -1,18 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { useFocusEffect } from "expo-router";
-import { AcademicData, EMPTY_DATA } from "./domain/academic";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { EMPTY_DATA } from "./domain/academic";
 import { storage } from "./storage";
 export function useAcademic() {
-  const [data, setData] = useState<AcademicData>(EMPTY_DATA);
-  const [target, setTarget] = useState(75);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    Promise.all([storage.read(), storage.target()]).then(([d,t]) => { if (active) { setData(d); setTarget(t); setError(""); } }).catch(() => { if (active) { setData(EMPTY_DATA); setError("Saved data could not be read. Clear this device’s data in More, then sync again."); } }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, []));
-  return { data, target, loading, error };
+  const q = useQuery({ queryKey: ['academic'], queryFn: async () => {
+    const [data, target] = await Promise.all([storage.read(), storage.target()]); return { data, target };
+  }, staleTime: Infinity });
+  return { data: q.data?.data ?? EMPTY_DATA, target: q.data?.target ?? 75, loading: q.isPending, error: q.isError ? 'Saved reports could not be opened. Please retry or sign in again.' : '' };
 }
 export function useNow() {
   const [now, setNow] = useState(() => new Date());

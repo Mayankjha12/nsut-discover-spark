@@ -1,6 +1,6 @@
 # NSUT Hub
 
-An independent campus companion built with **Expo / React Native / TypeScript**, **FastAPI**, and **MongoDB**. Android and browser share the interface. This is not an official NSUT service.
+An independent campus companion built with **Expo / React Native / TypeScript**, **FastAPI**, and **MongoDB**. Android is the supported sign-in target; the browser preview has no IMS login bridge. This is not an official NSUT service.
 
 ## What works
 
@@ -8,7 +8,7 @@ An independent campus companion built with **Expo / React Native / TypeScript**,
 - Weighted attendance, missing-data handling, per-subject target planning, and saved snapshot history. The default 75% target is a **personal preference**, not a verified institutional rule.
 - IST timetable ordering, ongoing/upcoming classes, gaps, cancellations, conflicts and cache timestamps.
 - Device-local, validated personal backup import/export; native storage uses Expo SecureStore. No passwords or IMS session cookies enter the API or academic cache.
-- Android user-assisted IMS browser: the student enters credentials and CAPTCHA on the official portal, opens a report and explicitly reads the current page. Supported table parsers are fixture-tested. **Live authenticated IMS capture has not been verified.** Unsupported layouts fail without replacing valid data.
+- Android IMS login: credentials and CAPTCHA stay on the official portal. After a visible authenticated identity is verified, supported attendance/timetable reports load automatically using links from that session. No guest entry. A fixed 90-day local session unlocks encrypted cached reports; IMS can expire its own cookies sooner. **Live authenticated IMS loading has not been verified.** Unsupported layouts preserve valid records.
 - Conservative room availability from administrator-published schedules. No complete schedule coverage means **unknown**. Stale schedules cannot report availability.
 - Results is intentionally **Coming Soon**, without fabricated marks.
 

@@ -55,6 +55,7 @@ jobs:
           yarn lint
           node tests/academic.cjs
           node tests/login.cjs
+          node tests/session.cjs
       - uses: android-actions/setup-android@v3
       - name: Install required Android packages
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1'

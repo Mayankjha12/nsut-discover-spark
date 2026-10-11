@@ -1,81 +1,90 @@
-// Exercise native WebView event handling with deterministic clocks; no portal requests.
+// Native session state machine + actual injected scripts against synthetic DOM fixtures.
+// This is not a real IMS/device integration test.
 process.chdir(require('node:path').resolve(__dirname, '..'));
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
-function compile(file) {
-  return ts.transpileModule(fs.readFileSync(file, 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+const { JSDOM } = require('jsdom');
+function load(file, imports = {}) {
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText, { exports, require: key => imports[key], URL, Date, Set });
+  return exports;
 }
-const portal = {};
-vm.runInNewContext(compile('src/domain/portal.ts'), {exports:portal,URL});
-let cursor = 0, sequence = 0;
-const slots = [], timers = new Map(), links = [];
-const hooks = {
-  useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], v => { slots[i] = typeof v === 'function' ? v(slots[i]) : v; }]; },
-  useRef(initial) { const i = cursor++; if (!(i in slots)) slots[i] = {current:initial}; return slots[i]; },
-  useEffect() {},
-};
-const jsx = (type, props) => ({type,props});
-const dependencies = {
-  react:hooks,
-  'react/jsx-runtime':{jsx,jsxs:jsx},
-  'react-native':{Platform:{OS:'android'},StyleSheet:{create:v=>v},Linking:{openURL:async url=>links.push(url)},ActivityIndicator:'Spinner',ScrollView:'ScrollView',Text:'Text',View:'View'},
-  'react-native-webview':{WebView:'WebView'},
-  'expo-router':{useRouter:()=>({replace(){}})},
-  'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0})},
-  '@/src/ims-scraper':{isIMSUrl:portal.isIMSUrl},
-  '@/src/domain/portal':portal,
-  '@/src/domain/academic':{}, '@/src/storage':{}, '@/src/query-client':{},
-  '@/src/components/campus':{Button:'Button',Card:'Card',Message:'Message',Page:'Page',ui:{}},
-};
-const exported = {};
-const setTimer = (callback, delay) => { const id=++sequence; timers.set(id,{callback,delay}); return id; };
-vm.runInNewContext(compile('app/login.tsx'), {exports:exported,require:name=>{assert(name in dependencies,name);return dependencies[name];},setInterval:setTimer,setTimeout:setTimer,clearInterval:id=>timers.delete(id),clearTimeout:id=>timers.delete(id),Date,Math});
-function render() { cursor=0; return exported.default(); }
-function find(tree, predicate) {
-  if (!tree || typeof tree !== 'object') return;
-  if (predicate(tree)) return tree;
-  for (const child of [tree.props?.children].flat(Infinity)) { const result=find(child,predicate); if (result) return result; }
+const session = load('src/domain/session.ts');
+const academic = load('src/domain/academic.ts');
+const portal = load('src/domain/portal.ts');
+const scraper = load('src/ims-scraper.ts', { './domain/portal': portal });
+const auto = load('src/ims-auto.ts', { './ims-scraper': scraper });
+const origin = 'https://www.imsnsit.org';
+const roll = '2023UCS1234';
+const report = `<div id="myreport"><table class="plum_fieldbig"><tr class="plum_head"><td>Heading</td></tr><tr class="plum_head"><td>Courses</td></tr><tr class="plum_head"><td>Date</td><td>CS101</td></tr><tr><td>Overall Class</td><td>4</td></tr><tr><td>Overall Present</td><td>3</td></tr><tr><td>Overall (%)</td><td>75%</td></tr></table></div>`;
+const schedule = '<table><tr><td>Day</td><td>Subject</td><td>Start</td><td>End</td><td>Room</td></tr><tr><td>Monday</td><td>CS101</td><td>09:00</td><td>10:00</td><td>APJ-01</td></tr></table>';
+const home = '<a href="logout.php">Logout</a><a href="profile.php">My Profile</a><a href="activities.php">My Activities</a>';
+const activities = '<a href="attendance.php">My Attendance</a><a href="timetable.php">My Timetable</a>';
+const fields = { year: '2026-27', sem: '3', enc_year: 'synthetic-year', enc_sem: 'synthetic-sem', recentitycode: roll };
+const form = overrides => `<form method="post">${Object.entries({...fields,...overrides}).map(([name,value])=>`<input name="${name}" value="${value}">`).join('')}<input type="submit" name="submit" value="Submit"></form>`;
+async function run({ html = home, routes = {}, collect = true, nested = false } = {}) {
+  const dom = new JSDOM(html, { url: `${origin}/imsnsit/student.htm`, runScripts: 'outside-only' });
+  const w = dom.window, messages = [], requests = [];
+  if (nested) {
+    w.document.body.innerHTML = '<iframe></iframe>';
+    const frame = w.document.querySelector('iframe').contentDocument;
+    frame.body.innerHTML = '<iframe></iframe>';
+    frame.querySelector('iframe').contentDocument.body.innerHTML = home;
+  }
+  w.ReactNativeWebView = {postMessage: m => messages.push(JSON.parse(m))};
+  w.fetch = async (url, options) => {
+    requests.push({url,options});
+    const key = `${options.method || 'GET'} ${new URL(url).pathname.split('/').pop()}`;
+    const body = routes[key];
+    return {ok:body !== undefined,text:async()=>body};
+  };
+  // Return the injected async function's promise rather than its trailing WebView sentinel.
+  await w.eval(auto.automaticPortal('nonce', collect).replace(/; true;$/, ''));
+  w.close();
+  return {messages,requests};
 }
-const component = type => find(render(),node=>node.type===type);
-const button = label => find(render(),node=>node.type==='Button' && node.props.label===label);
-const text = value => find(render(),node=>node.type==='Text' && node.props.children===value);
-let reloads = 0, injected = '';
-component('WebView').props.ref.current = {reload(){reloads++;},injectJavaScript(script){injected=script;}};
-const web = () => component('WebView').props;
-function health(content, staleId) {
-  [...timers.values()].find(t=>t.delay===1500)?.callback();
-  const requestId=staleId ?? JSON.parse(injected.match(/\)\((".*")\); true;$/)[1]);
-  web().onMessage({nativeEvent:{url:portal.IMS_URL,data:JSON.stringify({type:'portal-health',requestId,content})}});
-  return requestId;
-}
-assert(component('WebView'), 'Native login must open immediately');
-assert(button('Save a report').props.disabled);
-assert(web().onShouldStartLoadWithRequest({url:'about:blank'}));
-assert(!web().onShouldStartLoadWithRequest({url:'https://attacker.test'}));
-web().onLoadStart();
-const oldId = health(false);
-assert(text('Opening IMS…'));
-[...timers.values()].find(t=>t.delay===25000).callback();
-assert(text('IMS isn’t loading right now'));
-assert(text('IMS returned an empty page instead of the sign-in form. Please try again later or check the official portal in your browser.'));
-assert.equal(timers.size,0);
-health(true,oldId);
-assert(text('IMS isn’t loading right now'), 'Late health response must not clear a failed load');
-button('Try again').props.onPress();
-assert.equal(reloads,1);
-health(true);
-assert.equal(timers.size,0);
-assert(!button('Save a report').props.disabled);
-assert(!text('Opening IMS…'));
-web().onLoadStart();
-let prevented=false;
-web().onError({preventDefault(){prevented=true;}});
-assert(prevented);
-assert(text('IMS isn’t loading right now'));
-assert(button('Save a report').props.disabled);
-button('Open IMS in browser').props.onPress();
-assert.deepEqual(links,[portal.IMS_URL]);
-assert.equal(timers.size,0);
-console.log('PASS native login: immediate entry, navigation boundary, blank timeout, late response, retry, ready, network failure and browser fallback');
+(async () => {
+  const now = Date.now(), value = {roll,verifiedAt:now,expiresAt:now+session.SESSION_MS};
+  assert(session.readSession(value,now)); assert(session.readSession(value,now+session.SESSION_MS-1));
+  assert.equal(session.readSession(value,now+session.SESSION_MS),null);
+  assert.equal(session.readSession({...value,expiresAt:value.expiresAt+1},now),null);
+  assert.equal(session.readSession({...value,verifiedAt:now+1},now),null);
+  assert.equal(session.readSession({...value,roll:'bad'},now),null);
+  console.log('PASS fixed 90-day session boundary, invalid identity, future timestamp, tampered expiry');
+  const routes = {'GET profile.php':`<table><tr><td>Roll Number:</td><td>${roll}</td></tr></table>`,'GET activities.php':activities,'GET attendance.php':report,'GET timetable.php':schedule};
+  let result = await run({routes});
+  assert(result.messages.some(m=>m.type==='authenticated' && m.roll===roll));
+  const attendance = result.messages.find(m=>m.kind==='attendance');
+  assert(attendance); assert.equal(academic.normalizeSubjects(attendance.rows)[0].percent,75);
+  assert.equal(academic.normalizeTimetable(result.messages.find(m=>m.kind==='timetable').rows)[0].room,'APJ-01');
+  assert.equal(result.messages.at(-1).type,'complete'); assert.equal(result.requests.length,4);
+  assert(result.requests.every(r=>r.options.credentials==='same-origin' && r.options.redirect==='error'));
+  console.log('PASS discovered report links, profile identity, automatic attendance/timetable parsing');
+  result = await run({routes,nested:true});
+  assert(result.messages.some(m=>m.type==='authenticated'));
+  console.log('PASS nested same-origin frames');
+  result = await run({html:'<form><input type="password" value="do-not-read"><input name="cap" value="captcha"><img id="captchaimg"></form>'});
+  assert.equal(result.requests.length,0); assert(result.messages.some(m=>m.type==='needs-login'));
+  assert(!JSON.stringify(result.messages).includes('do-not-read')); assert(!result.messages.some(m=>m.type==='authenticated'));
+  console.log('PASS login/CAPTCHA stay in IMS and no credentials cross bridge');
+  result = await run({routes,collect:false}); assert.equal(result.requests.length,0);
+  result = await run({html:home.replace('profile.php','https://attacker.test/profile'), routes});
+  assert(!result.messages.some(m=>m.type==='authenticated')); assert.equal(result.requests.length,0);
+  result = await run({routes:{...routes,'GET profile.php':'Session expired'}});
+  assert(result.messages.some(m=>m.type==='needs-login')); assert(!result.messages.some(m=>m.type==='authenticated'));
+  result = await run({routes:{...routes,'GET profile.php':`Roll Number: ${roll} Roll Number: 2024UCS4567`}});
+  assert(!result.messages.some(m=>m.type==='authenticated'));
+  console.log('PASS cache-only probe, external links rejected, expired/conflicting identities rejected');
+  result = await run({routes:{...routes,'GET attendance.php':form({}),'POST attendance.php':report}});
+  assert.equal(result.requests.filter(r=>r.options.method==='POST').length,1);
+  assert.equal(new URLSearchParams(result.requests.find(r=>r.options.method==='POST').options.body).get('sem'),'3');
+  assert(result.messages.some(m=>m.kind==='attendance'));
+  for (const html of [form({sem:''}),form({recentitycode:'2024UCS4567'}),form({}).replace('<form','<form action="/other"'),form({}).replace('</form>','<input name="cap"></form>')]) {
+    result=await run({routes:{...routes,'GET attendance.php':html}});
+    assert(!result.requests.some(r=>r.options.method==='POST'));
+  }
+  console.log('PASS report form uses current portal values; incomplete, account mismatch, different action and CAPTCHA forms never submitted');
+  console.log('6 automatic-login fixture groups passed (no live IMS claim)');
+})().catch(e=>{console.error(e);process.exitCode=1;});

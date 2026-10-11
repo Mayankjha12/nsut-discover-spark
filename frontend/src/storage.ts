@@ -2,6 +2,8 @@ import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { AcademicData, EMPTY_DATA, normalizeBackup, overall } from "./domain/academic";
+import { DeviceSession, readSession } from "./domain/session";
+const SESSION = "nsut_session_v1";
 const KEY = "nsut_academic_v2";
 const PREF = "nsut_target_v2";
 const LEGACY = ["nsut_hub_pw", "nsut_hub_session_cookie", "nsut_hub_roll", "nsut_hub_profile", "nsut_hub_attendance", "nsut_hub_rooms", "nsut_hub_bunk_plan"];
@@ -17,6 +19,9 @@ export const storage = {
     const keys = await AsyncStorage.getAllKeys();
     await AsyncStorage.multiRemove(keys.filter(k => k.startsWith("nsut_hub_")));
   },
+  async session() { const raw = await get(SESSION); if (!raw) return null; try { return readSession(JSON.parse(raw)); } catch { return null; } },
+  async saveSession(session: DeviceSession) { if (!readSession(session)) throw new Error("Invalid session"); await set(SESSION, JSON.stringify(session)); },
+  async clearSession() { await del(SESSION); },
   async read(): Promise<AcademicData> {
     const raw = await get(KEY);
     if (!raw) return { ...EMPTY_DATA, history: [] };
@@ -37,5 +42,5 @@ export const storage = {
   },
   async target(): Promise<number> { const n = Number(await get(PREF)); return n >= 1 && n <= 100 ? n : 75; },
   async setTarget(n: number) { if (!Number.isInteger(n) || n < 1 || n > 100) throw new Error("Choose a target from 1 to 100."); await set(PREF, String(n)); },
-  async clear() { await Promise.all([del(KEY), del(PREF), ...LEGACY.map(del)]); await AsyncStorage.multiRemove((await AsyncStorage.getAllKeys()).filter(k => k.startsWith("nsut_hub_"))); },
+  async clear() { await Promise.all([del(SESSION), del(KEY), del(PREF), ...LEGACY.map(del)]); await AsyncStorage.multiRemove((await AsyncStorage.getAllKeys()).filter(k => k.startsWith("nsut_hub_"))); },
 };

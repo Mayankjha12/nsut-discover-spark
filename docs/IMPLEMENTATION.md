@@ -33,7 +33,7 @@ No reference app UI or code was copied. No unverified external API endpoint was 
 ## Main files
 
 - `frontend/src/domain/academic.ts`, `portal.ts`: validation, provenance, attendance math, time handling, account isolation.
-- `frontend/src/ims-scraper.ts`, `app/login.tsx`: explicit portal reads and secure browser boundary.
+- `frontend/src/ims-scraper.ts`, `app/login.tsx`: report parsing; ims-auto.ts and ims-session.tsx handle automatic loading, secure browser boundaries and local sessions.
 - `frontend/src/storage.ts`, `use-academic.ts`: local cache, legacy cleanup, refresh.
 - `frontend/assets/images/brand-mark.svg`, `scripts/generate-brand.cjs`: original NSUT Hub monogram and reproducible Android/web assets.
 - `frontend/src/components/campus.tsx`: reusable layout, accessible controls and status components.
@@ -44,7 +44,7 @@ No reference app UI or code was copied. No unverified external API endpoint was 
 
 No production database connection or permanent public deployment has been established. Local tests use disposable MongoDB and clearly synthetic fixtures.
 
-## Login and first-launch correction
+## Historical build3 login correction (superseded by build5)
 
 Version code 3 opens a compact welcome/sign-in screen when no academic reports are saved. Existing saved reports open Today directly. On Android, Continue with IMS immediately opens the official portal; report tools are collapsed until the portal renders. The app permits IMS's empty `about:blank` frame targets while enforcing exact HTTPS IMS hosts for remote navigation. Unlisted URLs are rejected instead of automatically opened by WebView.
 
@@ -58,3 +58,11 @@ Visual references inspected: Campus Sphere portfolio `public/work/campus-sphere/
 ## NSUT Hub name and copy update
 
 The display name is NSUT Hub. The Android package ID and local data keys remain stable so existing installations can update and retain reports. Build4 uses a simple NH monogram, a compact student-login screen, direct page titles and shorter empty/error messages. Marketing slogans were removed from welcome, dashboard, Results, Settings and the download page. APK release assets are named nsut-hub.apk. Repository URLs still use the existing repository name.
+
+## Build5: automatic reports and local session
+
+Guest routes and the intermediate welcome page are removed. Native first launch goes straight to the official IMS form inside the NSUT Hub login shell. Supported reports load automatically after a unique visible roll is verified; legacy Save report controls are removed. A shared academic cache avoids repeated per-tab reads. Local cached-data access expires after90 days; IMS can require fresh login sooner. Logout/account switching clear private data, and logout clears cookies. See CONFIGURATION.md for exact boundaries and live-test limitations.
+
+Research: Ahmedazim7804/imsnsit_app publicly documents My Profile/My Activities/My Attendance discovery and transposed report fields. Its raw-password persistence, CAPTCHA automation and fixed signed URLs were not adopted. Campus Sphere's developer portfolio lists github:null; no public Campus Sphere source was available to inspect. No competitor interface/source was copied.
+
+Version5 validation includes DOM fixtures for automatic report loading and a native event simulation for identity/nonce checks, serialized saves, account switching and logout. These tests do not establish current portal compatibility. Rooms still need a production API plus authorized complete schedules; notices need a working upstream feed; Results remains Coming Soon. No production host or authenticated account has been configured.
