@@ -68,6 +68,9 @@ async function run({ html = home, routes = {}, collect = true, nested = false } 
   result = await run({html:'<form><input type="password" value="do-not-read"><input name="cap" value="captcha"><img id="captchaimg"></form>'});
   assert.equal(result.requests.length,0); assert(result.messages.some(m=>m.type==='needs-login'));
   assert(!JSON.stringify(result.messages).includes('do-not-read')); assert(!result.messages.some(m=>m.type==='authenticated'));
+  result = await run({html:'<p>IMS banner text with no usable student sign in form</p>'});
+  assert.equal(result.messages.find(m=>m.type==='health').content,false);
+  assert.equal(result.requests.length,0);
   console.log('PASS login/CAPTCHA stay in IMS and no credentials cross bridge');
   result = await run({routes,collect:false}); assert.equal(result.requests.length,0);
   result = await run({html:home.replace('profile.php','https://attacker.test/profile'), routes});

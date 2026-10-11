@@ -30,7 +30,7 @@ const AUTO_JS = String.raw`async function run(requestId, collect, readReport) {
   const find = re => links().find(a => re.test(clean(a)) && safe(a.getAttribute('href')));
   const logout = find(/^log\s*out$|^sign\s*out$/i);
   const hasLogin = docs.some(d => d.querySelector('input[type=password]'));
-  send({ type: 'health', content: hasLogin || !!logout || docs.some(d => !d.querySelector('frameset') && !/\/blank\.htm/.test(d.URL || '') && (d.body?.innerText || '').trim().length > 30) });
+  send({ type: 'health', content: hasLogin || !!logout });
   if (!logout) { if (hasLogin) send({ type: 'needs-login' }); return; }
   // Watch same-origin frame navigation without sending page contents over the bridge.
   const signature = docs.map(d => d.URL + ':' + (d.body?.textContent || '')).join('|');
