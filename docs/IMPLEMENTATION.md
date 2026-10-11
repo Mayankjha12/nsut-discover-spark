@@ -43,3 +43,13 @@ No reference app UI or code was copied. No unverified external API endpoint was 
 - `.env.example` files, `deployment/*`, `frontend/scripts/build-apk.sh`: reproducible configuration and distribution.
 
 No production database connection or permanent public deployment has been established. Local tests use disposable MongoDB and clearly synthetic fixtures.
+
+## Login and first-launch correction
+
+Version code 3 opens a compact welcome/sign-in screen when no academic reports are saved. Existing saved reports open Today directly. On Android, Continue with IMS immediately opens the official portal; report tools are collapsed until the portal renders. The app permits IMS's empty `about:blank` frame targets while enforcing exact HTTPS IMS hosts for remote navigation. Unlisted URLs are rejected instead of automatically opened by WebView.
+
+Loading includes a bounded, local DOM rendering check that inspects form existence and visible text only. It never reads field values or cookies or triggers network polling. Missing/empty content, HTTP/network/TLS errors and a stopped WebView expose Retry, an explicit external-browser fallback, and access to saved data. Browser login cannot be imported into the in-app session.
+
+On 11 October 2026, the official `student.htm` login frame redirected from `student_login110.php` to `student_login.php`, which returned HTTP200 with an empty body. Shared Chromium also showed zero forms/text in that frame. This is an observed upstream availability problem; these UI and navigation fixes do not establish successful live authentication. No portal protection is bypassed. Android device verification remains unavailable in this sandbox.
+
+Visual references inspected: Campus Sphere portfolio `public/work/campus-sphere/1.webp` (compact day navigation, dark surfaces, cyan status accents), and IMS NSIT `screenshots/Screenshot 1.jpg` (focused first-launch sign-in). Original branding and layout are retained; credentials are entered only on IMS.

@@ -57,6 +57,35 @@ test('portal allowlist rejects credentials, HTTP and deceptive hosts', () => {
   assert(portal.isIMSUrl('https://www.imsnsit.org/imsnsit/student.htm'));
   for (const url of ['http://imsnsit.org','https://imsnsit.org.evil.test','https://evil.test/imsnsit.org','https://user:pass@imsnsit.org']) assert(!portal.isIMSUrl(url));
 });
+test('IMS empty frame navigation is allowed without accepting other origins', () => {
+  assert(portal.isPortalNavigation('about:blank'));
+  assert(portal.isPortalNavigation('https://www.imsnsit.org/imsnsit/student_login.php'));
+  for (const url of ['about:blank#evil', 'javascript:alert(1)', 'file:///etc/passwd', 'intent://imsnsit.org', 'https://imsnsit.org:444', 'http://imsnsit.org']) assert(!portal.isPortalNavigation(url));
+});
+test('portal rendering probe distinguishes empty IMS frames from a real form', () => {
+  const origin = 'https://www.imsnsit.org';
+  function doc(url, text = '', form = false, frameset = false) {
+    return {URL:url, location:{origin}, body:{innerText:text}, querySelector(s) { return s === 'form' ? form : s === 'frameset' ? frameset : null; },querySelectorAll(){return [];}};
+  }
+  function probe(children, host = 'www.imsnsit.org') {
+    let result;
+    const root = doc(origin+'/imsnsit/student.htm', '', false, true);
+    root.querySelectorAll = () => children.map(d => ({contentDocument:d}));
+    vm.runInNewContext(portal.portalProbe('health-nonce'), {location:{protocol:'https:',hostname:host,origin},document:root,window:{ReactNativeWebView:{postMessage(value){result=JSON.parse(value);}}}});
+    return result;
+  }
+  const blank = doc(origin+'/imsnsit/blank.htm', 'PLUM ERP decorative content that must not count as a login');
+  assert.equal(probe([blank, doc(origin+'/imsnsit/student_login.php')]).content,false);
+  const form = doc(origin+'/imsnsit/student_login.php', '', true);
+  // Any attempt to read credential values fails the fixture.
+  Object.defineProperty(form, 'forms', {get(){throw Error('Credential access forbidden');}});
+  assert.equal(probe([blank,form]).content,true);
+  assert.equal(probe([doc(origin+'/report', 'Your academic report is available on this page')]).content,true);
+  const foreign = doc('https://elsewhere.test'); foreign.location.origin='https://elsewhere.test'; foreign.querySelector=()=>{throw Error('Cross origin read');};
+  assert.equal(probe([foreign]).content,false);
+  assert.equal(probe([form], 'evil.test'),undefined);
+  assert.equal(probe([form]).requestId,'health-nonce');
+});
 const cell = text => ({ textContent: text });
 const row = values => ({cells:values.map(cell)});
 function extract(kind, tables, matrix = [], loggedIn = true) {
