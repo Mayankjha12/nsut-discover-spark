@@ -5,8 +5,8 @@ import Feather from "@react-native-vector-icons/feather";
 import { colors } from "../theme";
 export function Page({ title, subtitle, children, action, testID }: { title: string; subtitle?: string; children: ReactNode; action?: ReactNode; testID?: string }) {
   const inset = useSafeAreaInsets(), { width } = useWindowDimensions();
-  return <ScrollView testID={testID} style={{ flex: 1, backgroundColor: colors.surface }} contentContainerStyle={{ paddingTop: inset.top + 24, paddingBottom: 36 + inset.bottom }} keyboardShouldPersistTaps="handled"><View style={ui.page}>
-    <View style={[ui.pageHead, width < 600 && { flexDirection: "column", alignItems: "stretch" }]}><View style={{ flex: 1, minWidth: 0 }}><Text style={ui.eyebrow}>NSUT · DISCOVER SPARK</Text><Text accessibilityRole="header" style={ui.title}>{title}</Text>{subtitle ? <Text style={ui.muted}>{subtitle}</Text> : null}</View>{action}</View>{children}
+  return <ScrollView testID={testID} style={{ flex: 1, backgroundColor: colors.surface }} contentContainerStyle={{ paddingTop: inset.top + 20, paddingBottom: 36 + inset.bottom }} keyboardShouldPersistTaps="handled"><View style={ui.page}>
+    <View style={[ui.pageHead, width < 600 && { flexDirection: "column", alignItems: "stretch" }]}><View style={{ flex: 1, minWidth: 0 }}><Text style={ui.eyebrow}>NSUT HUB</Text><Text accessibilityRole="header" style={ui.title}>{title}</Text>{subtitle ? <Text style={ui.muted}>{subtitle}</Text> : null}</View>{action}</View>{children}
   </View></ScrollView>;
 }
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) { return <View style={[ui.card, style]}>{children}</View>; }
@@ -19,18 +19,18 @@ export function Empty({ icon = "inbox", title, message, children }: { icon?: Rea
 export function Loading() { return <View style={ui.row}><ActivityIndicator color={colors.onBrandTertiary}/><Text style={ui.muted}>Loading your saved data…</Text></View>; }
 export function Message({ children }: { children: ReactNode }) { return <Text accessibilityRole="alert" style={ui.message}>{children}</Text>; }
 export const ui = StyleSheet.create({
-  page: { width: "100%", maxWidth: 1120, alignSelf: "center", paddingHorizontal: 24, gap: 24 },
+  page: { width: "100%", maxWidth: 1120, alignSelf: "center", paddingHorizontal: 20, gap: 20 },
   pageHead: { flexDirection: "row", gap: 12, alignItems: "center", flexWrap: "wrap" },
-  eyebrow: { color: "#B3B8C7", fontSize: 11, fontWeight: "700", letterSpacing: 2, marginBottom: 10 },
-  title: { color: colors.onSurface, fontSize: 30, fontWeight: "700", letterSpacing: -0.8, marginBottom: 8 },
-  h2: { color: colors.onSurface, fontSize: 19, fontWeight: "600", letterSpacing: -0.3 },
+  eyebrow: { color: "#B3B8C7", fontSize: 11, fontWeight: "700", letterSpacing: 1, marginBottom: 8 },
+  title: { color: colors.onSurface, fontSize: 26, fontWeight: "700", letterSpacing: -0.5, marginBottom: 8 },
+  h2: { color: colors.onSurface, fontSize: 18, fontWeight: "600", letterSpacing: -0.3 },
   h3: { color: colors.onSurface, fontSize: 16, fontWeight: "600" },
   text: { color: colors.onSurfaceSecondary, fontSize: 15, lineHeight: 23 },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 22 },
   small: { color: colors.muted, fontSize: 12, lineHeight: 19 },
-  card: { backgroundColor: colors.surfaceSecondary, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 22, gap: 14 },
+  card: { backgroundColor: colors.surfaceSecondary, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 18, gap: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 18 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
   button: { minHeight: 46, paddingHorizontal: 18, paddingVertical: 11, borderRadius: 11, backgroundColor: "#B92D39", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 9, borderWidth: 1, borderColor: "transparent", alignSelf: "flex-start" },
   secondary: { backgroundColor: colors.surfaceTertiary, borderColor: colors.borderStrong },
   buttonText: { color: "white", fontSize: 14, fontWeight: "600", textAlign: "center" },

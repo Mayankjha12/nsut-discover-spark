@@ -1,4 +1,4 @@
-# NSUT Discover Spark
+# NSUT Hub
 
 An independent campus companion built with **Expo / React Native / TypeScript**, **FastAPI**, and **MongoDB**. Android and browser share the interface. This is not an official NSUT service.
 

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "NSUT Discover Spark",
+    "name": "NSUT Hub",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,7 +17,7 @@
         "backgroundColor": "#0F1115"
       },
       "package": "com.emergent.nsuthub.zpg0ni",
-      "versionCode": 3
+      "versionCode": 4
     },
     "web": {
       "bundler": "metro",

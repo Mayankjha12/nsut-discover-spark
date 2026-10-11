@@ -1,13 +1,11 @@
-// Deterministic geometric campus/spark mark. Uses Expo's existing image tooling.
+// NSUT Hub monogram. Uses Expo's existing image tooling.
 const fs = require('node:fs');
 const path = require('node:path');
 const Jimp = require(require.resolve('jimp-compact', { paths: [path.dirname(require.resolve('@expo/image-utils'))] }));
 const root = path.resolve(__dirname, '../assets/images');
 const shapes = [
-  { color: '#E45562', points: [[270,670],[270,390],[490,270],[640,352],[590,400],[490,345],[340,430],[340,670]] },
-  { color: '#F3F4F6', points: [[410,670],[410,470],[485,470],[485,670]] },
-  { color: '#F3F4F6', points: [[545,670],[545,445],[620,420],[620,670]] },
-  { color: '#78DCC8', points: [[695,252],[722,321],[791,348],[722,375],[695,444],[668,375],[599,348],[668,321]] },
+  { color: '#F3F4F6', points: [[230,714],[230,310],[305,310],[445,557],[445,310],[515,310],[515,714],[440,714],[300,467],[300,714]] },
+  { color: '#E98A91', points: [[565,310],[635,310],[635,476],[725,476],[725,310],[795,310],[795,714],[725,714],[725,548],[635,548],[635,714],[565,714]] },
 ];
 fs.writeFileSync(path.join(root,'brand-mark.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="216" fill="#0F1115"/>${shapes.map(s=>`<polygon fill="${s.color}" points="${s.points.map(p=>p.join(',')).join(' ')}"/>`).join('')}</svg>\n`);
 function polygon(image, shape) {

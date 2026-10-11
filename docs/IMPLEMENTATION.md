@@ -35,7 +35,7 @@ No reference app UI or code was copied. No unverified external API endpoint was 
 - `frontend/src/domain/academic.ts`, `portal.ts`: validation, provenance, attendance math, time handling, account isolation.
 - `frontend/src/ims-scraper.ts`, `app/login.tsx`: explicit portal reads and secure browser boundary.
 - `frontend/src/storage.ts`, `use-academic.ts`: local cache, legacy cleanup, refresh.
-- `frontend/assets/images/brand-mark.svg`, `scripts/generate-brand.cjs`: original geometric campus/spark icon and reproducible Android/web assets.
+- `frontend/assets/images/brand-mark.svg`, `scripts/generate-brand.cjs`: original NSUT Hub monogram and reproducible Android/web assets.
 - `frontend/src/components/campus.tsx`: reusable layout, accessible controls and status components.
 - `frontend/app/(tabs)/*`, `results.tsx`, `news.tsx`: redesigned screens.
 - `backend/server.py`, `schedules.py`: public API, cache/lease, admin import and availability.
@@ -53,3 +53,8 @@ Loading includes a bounded, local DOM rendering check that inspects form existen
 On 11 October 2026, the official `student.htm` login frame redirected from `student_login110.php` to `student_login.php`, which returned HTTP200 with an empty body. Shared Chromium also showed zero forms/text in that frame. This is an observed upstream availability problem; these UI and navigation fixes do not establish successful live authentication. No portal protection is bypassed. Android device verification remains unavailable in this sandbox.
 
 Visual references inspected: Campus Sphere portfolio `public/work/campus-sphere/1.webp` (compact day navigation, dark surfaces, cyan status accents), and IMS NSIT `screenshots/Screenshot 1.jpg` (focused first-launch sign-in). Original branding and layout are retained; credentials are entered only on IMS.
+
+
+## NSUT Hub name and copy update
+
+The display name is NSUT Hub. The Android package ID and local data keys remain stable so existing installations can update and retain reports. Build4 uses a simple NH monogram, a compact student-login screen, direct page titles and shorter empty/error messages. Marketing slogans were removed from welcome, dashboard, Results, Settings and the download page. APK release assets are named nsut-hub.apk. Repository URLs still use the existing repository name.

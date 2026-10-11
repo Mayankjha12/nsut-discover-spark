@@ -2,7 +2,7 @@
 
 The `Android APK` GitHub Actions workflow builds a signed APK after frontend changes are pushed to `main` (also builds an artifact on this task branch). On `main`, a successful build publishes a GitHub Release automatically. The public download address then stays:
 
-https://github.com/Mayankjha12/nsut-discover-spark/releases/latest/download/nsut-discover-spark.apk
+https://github.com/Mayankjha12/nsut-discover-spark/releases/latest/download/nsut-hub.apk
 
 **This link starts working only after a configured workflow succeeds. No release has been published by this task.** Builds on the task branch are downloadable from Actions artifacts by signed-in users; public Releases are published from `main` only. `workflow_dispatch` also allows a manual build from the Actions tab once the workflow is on the default branch.
 

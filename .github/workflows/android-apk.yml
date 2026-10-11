@@ -79,14 +79,14 @@ jobs:
           export APK_PASSWORD_FILE="$signing_dir/password"
           # ARMv7 and ARM64 cover Android phones; x86 emulator binaries are excluded.
           export APK_ARCHITECTURES=armeabi-v7a,arm64-v8a
-          export APK_OUTPUT="$GITHUB_WORKSPACE/frontend/dist/nsut-discover-spark.apk"
+          export APK_OUTPUT="$GITHUB_WORKSPACE/frontend/dist/nsut-hub.apk"
           bash frontend/scripts/build-apk.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: nsut-discover-spark-${{ steps.version.outputs.code }}
+          name: nsut-hub-${{ steps.version.outputs.code }}
           path: |
-            frontend/dist/nsut-discover-spark.apk
-            frontend/dist/nsut-discover-spark.apk.sha256
+            frontend/dist/nsut-hub.apk
+            frontend/dist/nsut-hub.apk.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -99,7 +99,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: nsut-discover-spark-${{ needs.build.outputs.version_code }}
+          name: nsut-hub-${{ needs.build.outputs.version_code }}
           path: release
       - name: Publish public download
         env:
@@ -115,7 +115,7 @@ jobs:
             latest_flag=false
           fi
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          Signed NSUT Discover Spark Android update. Download the APK below and open it on your phone to install/update.
+          Signed NSUT Hub Android update. Download the APK below and open it on your phone to install/update.
 
           Updates preserve local data when installed over an app signed with the same key. Android 7.0 or later; ARMv7/ARM64.
           IMS page capture still requires verification against the current portal. Results are Coming Soon.

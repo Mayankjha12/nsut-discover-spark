@@ -11,13 +11,13 @@ export default function Rooms() {
   // A failed refresh invalidates the previous status; keep room metadata only.
   const safe = rooms.map(r => q.isError || q.data?.stale ? { ...r, status: 'unknown' as const, reason: 'The latest schedule could not be verified. Check on arrival.', minutes_until_change: null, next_class: null } : r);
   const visible = safe.filter(r => (building === 'All' || r.building === building) && (status === 'All' || r.status === status) && `${r.id} ${r.building} ${r.room_type}`.toLowerCase().includes(search.toLowerCase()));
-  return <Page title="Find your quiet corner" subtitle="Timetable-based availability · not sensor-verified occupancy" testID="rooms-root" action={<Button label={q.isFetching ? 'Refreshing…' : 'Refresh rooms'} disabled={q.isFetching} secondary icon="refresh-cw" onPress={() => { void q.refetch(); }}/> }>
+  return <Page title="Rooms" subtitle="Availability from published timetables, not live occupancy." testID="rooms-root" action={<Button label={q.isFetching ? 'Refreshing…' : 'Refresh rooms'} disabled={q.isFetching} secondary icon="refresh-cw" onPress={() => { void q.refetch(); }}/> }>
     <TextInput accessibilityLabel="Search rooms, buildings, or room types" placeholder="Search room, block, or room type" placeholderTextColor="#9CA3AF" value={search} onChangeText={setSearch} style={ui.input}/>
     <View style={ui.row}>{buildings.map(b => <Button key={b} label={b} secondary={building !== b} onPress={() => setBuilding(b)}/>)}</View>
     <View style={ui.row}>{(['All','available','occupied','unknown'] as const).map(s => <Button key={s} label={s === 'All' ? 'All statuses' : s === 'available' ? 'Available' : s === 'occupied' ? 'Occupied' : 'Unknown'} secondary={status !== s} onPress={() => setStatus(s)}/>)}</View>
     {q.isError ? <Message>{q.error.message} Cached room statuses are now unknown.</Message> : null}
-    <Text style={ui.small}>{q.isPending ? 'Checking published schedules…' : q.data?.observed_at ? `Source checked ${new Date(q.data.observed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST${q.data.stale ? ' · OUTDATED' : ''}` : 'No verified schedule available.'} · Refreshes every minute without re-scraping IMS.</Text>
-    {!visible.length && !q.isPending ? <Empty icon="map-pin" title={rooms.length ? 'No matching rooms' : 'Unknown is better than a wrong answer'} message={rooms.length ? 'Try another filter or room name.' : 'No verified room schedule has been published. We will show availability only when a complete, current timetable supports it.'}/> : null}
+    <Text style={ui.small}>{q.isPending ? 'Checking published schedules…' : q.data?.observed_at ? `Source checked ${new Date(q.data.observed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST${q.data.stale ? ' · OUTDATED' : ''}` : 'No verified schedule available.'} · Updates every minute.</Text>
+    {!visible.length && !q.isPending ? <Empty icon="map-pin" title={rooms.length ? 'No matching rooms' : 'Room schedules unavailable'} message={rooms.length ? 'Try another filter or room name.' : 'No current room schedule has been published. Check the room on arrival.'}/> : null}
     <View style={ui.grid}>{visible.map(room => <RoomCard key={room.id} room={room}/>)}</View>
   </Page>;
 }

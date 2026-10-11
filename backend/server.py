@@ -39,7 +39,7 @@ async def lifespan(app):
     yield
     client.close()
 
-app = FastAPI(title='NSUT Discover Spark API', version='2.0.0', lifespan=lifespan)
+app = FastAPI(title='NSUT Hub API', version='2.0.0', lifespan=lifespan)
 origins = [s.strip() for s in os.environ.get('CORS_ORIGINS', 'http://localhost:8081').split(',') if s.strip()]
 if '*' in origins:
     raise RuntimeError('CORS_ORIGINS must list explicit web origins')
@@ -73,7 +73,7 @@ async def unexpected_error(request, exc):
     return JSONResponse(status_code=503, content={'detail': 'Campus service is temporarily unavailable. Please try again later.'})
 
 @app.get('/api/')
-async def root(): return {'message': 'NSUT Discover Spark API', 'version': '2.0.0'}
+async def root(): return {'message': 'NSUT Hub API', 'version': '2.0.0'}
 
 @app.get('/api/health')
 async def health(): return {'ok': True, 'ts': datetime.now(timezone.utc).isoformat()}
@@ -116,7 +116,7 @@ async def news(): return {'status': 'coming_soon', 'message': 'Student news is u
 
 # A Mongo lease suppresses duplicate upstream requests across workers and users.
 def scrape_notices():
-    with requests.get(NOTICES_URL, timeout=(4, 10), headers={'User-Agent': 'NSUT-Discover-Spark/2.0 (public campus notices)'}, stream=True) as response:
+    with requests.get(NOTICES_URL, timeout=(4, 10), headers={'User-Agent': 'NSUT-Hub/2.0 (public campus notices)'}, stream=True) as response:
         response.raise_for_status()
         payload = bytearray()
         for chunk in response.iter_content(16384):
